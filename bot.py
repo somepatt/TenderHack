@@ -138,7 +138,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response_parts = []
         # Используем HTML для лучшего форматирования ссылок и выделения
         response_parts.append(
-            f"<blockquote>{best_result['answer']}</blockquote>")  # Цитируем текст
+            f"<blockquote>{best_result['text']}</blockquote>")  # Цитируем текст
 
         response_text = "\n".join(response_parts)
 
