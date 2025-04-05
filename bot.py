@@ -372,110 +372,91 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
 
     # --- Стратегия А: Поиск в Базе Знаний (CSV/PDF) ---
-    if query_category in ai_pipeline.SEARCH_KB_CATEGORIES:
-        logger.info(
-            f"Категория '{query_category}' требует поиска в БЗ (CSV/PDF).")
-        if not retrieval_ok:
-            final_response_text = "Извините, сервис временно недоступен (ошибка поиска)."
-        else:
-            best_match_item = ai_pipeline.retrieve_context(user_query)
+    if not retrieval_ok:
+        final_response_text = "Извините, сервис временно недоступен (ошибка поиска)."
+    else:
+        best_match_item = ai_pipeline.retrieve_context(user_query)
 
-            if best_match_item:
-                kb_id_for_log = best_match_item.get('id')
-                similarity_for_log = best_match_item.get('similarity')
-                data_type = best_match_item.get('data_type')
-                source = best_match_item.get('source', 'База Знаний')
-                # Оригинальный контент (ответ CSV или чанк PDF)
-                original_content = best_match_item.get('content', '')
+        if best_match_item:
+            kb_id_for_log = best_match_item.get('id')
+            similarity_for_log = best_match_item.get('similarity')
+            data_type = best_match_item.get('data_type')
+            source = best_match_item.get('source', 'База Знаний')
+            original_content = best_match_item.get('content', '')
 
-                # --- Если нашли ответ в CSV ---
-                if data_type == 'csv':
-                    logger.info(
-                        f"Найден готовый ответ в CSV (ID: {kb_id_for_log}).")
-                    paraphrased_answer = None
-                    # --- Попытка перефразирования ---
-                    if PARAPHRASE_CSV_ANSWERS and generation_ok:
-                        logger.info("Пытаемся перефразировать ответ из CSV...")
-                        paraphrased_answer = ai_pipeline.paraphrase_text_with_llm(
-                            original_content)
+            if data_type == 'csv':
+                logger.info(
+                    f"Найден готовый ответ в CSV (ID: {kb_id_for_log}).")
+                paraphrased_answer = None
+                if PARAPHRASE_CSV_ANSWERS and generation_ok:
+                    logger.info("Пытаемся перефразировать ответ из CSV...")
+                    paraphrased_answer = ai_pipeline.paraphrase_text_with_llm(
+                        original_content)
 
-                    if paraphrased_answer:
-                        # Используем перефразированный ответ
-                        logger.info("Используем перефразированный ответ.")
-                        response_parts = [
-                            f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
-                            f"<blockquote>{html.escape(paraphrased_answer)}</blockquote>",
-                            f"<b>Источник:</b> {source}"
-                        ]
-                        final_response_text = "\n".join(response_parts)
-                    else:
-                        # Используем оригинальный ответ (fallback)
-                        logger.info(
-                            "Используем оригинальный ответ из CSV (перефразирование не удалось или отключено).")
-                        response_parts = [
-                            f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
-                            "<b>Ответ:</b>",
-                            f"<blockquote>{html.escape(original_content)}</blockquote>",
-                            f"<b>Источник:</b> {source}"
-                        ]
-                        final_response_text = "\n".join(response_parts)
-
-                # --- Если нашли релевантный чанк в PDF ---
-                elif data_type == 'pdf':
-                    logger.info(
-                        f"Найден релевантный чанк PDF (ID: {kb_id_for_log}).")
-                    generated_answer = None
-                    # Пытаемся сгенерировать ответ RAG
-                    if USE_LLM_GENERATION and generation_ok:
-                        logger.info(
-                            "Пытаемся сгенерировать RAG ответ по PDF...")
-                        generated_answer = ai_pipeline.generate_answer_with_llm(
-                            user_query, best_match_item)
-
-                    if generated_answer:
-                        final_response_text = generated_answer
-                    else:
-                        # Fallback: Показываем сам чанк PDF
-                        logger.warning(
-                            "Не удалось сгенерировать ответ LLM по PDF, показываем текст чанка.")
-                        response_parts = [f"Нашел релевантный фрагмент в документе '{source}' (схожесть: {similarity_for_log:.2f}):",
-                                          f"<blockquote>{html.escape(original_content)}</blockquote>",
-                                          f"<b>Источник:</b> {source}"]
-                        final_response_text = "\n".join(response_parts)
+                if paraphrased_answer:
+                    logger.info("Используем перефразированный ответ.")
+                    response_parts = [
+                        f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
+                        f"<blockquote>{html.escape(paraphrased_answer)}</blockquote>",
+                        f"<b>Источник:</b> {source}"
+                    ]
+                    final_response_text = "\n".join(response_parts)
                 else:
-                    logger.error(f"Неизвестный data_type: {data_type}")
-                    final_response_text = "Произошла внутренняя ошибка."
+                    logger.info(
+                        "Используем оригинальный ответ из CSV (перефразирование не удалось или отключено).")
+                    response_parts = [
+                        f"<blockquote>{html.escape(original_content)}</blockquote>",
+                        f"<b>Источник:</b> {source}"
+                    ]
+                    final_response_text = "\n".join(response_parts)
 
-            else:  # Ничего не найдено в БЗ
-                logger.info("Релевантных данных в CSV/PDF не найдено.")
-                # ... (код генерации "из головы" или "не найдено", без изменений) ...
+            elif data_type == 'pdf':
+                logger.info(
+                    f"Найден релевантный чанк PDF (ID: {kb_id_for_log}).")
+                generated_answer = None
+                if USE_LLM_GENERATION and generation_ok:
+                    logger.info(
+                        "Пытаемся сгенерировать RAG ответ по PDF...")
+                    generated_answer = ai_pipeline.generate_answer_with_llm(
+                        user_query, best_match_item)
+
+                if generated_answer:
+                    final_response_text = generated_answer
+                else:
+                    logger.warning(
+                        "Не удалось сгенерировать ответ LLM по PDF, показываем текст чанка.")
+                    response_parts = [f"Нашел релевантный фрагмент в документе '{source}' (схожесть: {similarity_for_log:.2f}):",
+                                      f"<blockquote>{html.escape(original_content)}</blockquote>",
+                                      f"<b>Источник:</b> {source}"]
+                    final_response_text = "\n".join(response_parts)
+            else:
+                logger.error(f"Неизвестный data_type: {data_type}")
+                final_response_text = "Произошла внутренняя ошибка."
+
+        else:
+            logger.info("Релевантных данных в CSV/PDF не найдено.")
+            if USE_LLM_GENERATION and generation_ok:
+                final_response_text = ai_pipeline.generate_live_response_with_llm(
+                    user_query, "Другое")
+                if not final_response_text:
+                    final_response_text = "К сожалению, не могу найти информацию и возникла ошибка."
+            else:
+                # --- Стратегия Б: "Живое" общение ---
+                logger.info(
+                    f"Категория '{query_category}' требует 'живого' ответа.")
                 if USE_LLM_GENERATION and generation_ok:
                     final_response_text = ai_pipeline.generate_live_response_with_llm(
-                        user_query, "Другое")
-                    if final_response_text:
-                        final_response_text += "\n\n_(Ответ сгенерирован без базы знаний)_"
-                    else:
-                        final_response_text = "К сожалению, не могу найти информацию и возникла ошибка."
+                        user_query, query_category)
+                    if not final_response_text:
+                        final_response_text = "Спасибо за сообщение. Ошибка обработки."
                 else:
-                    final_response_text = "К сожалению, я не смог найти ответ в базе знаний."
-
-    # --- Стратегия Б: "Живое" общение ---
-    else:
-        # ... (код без изменений) ...
-        logger.info(f"Категория '{query_category}' требует 'живого' ответа.")
-        if USE_LLM_GENERATION and generation_ok:
-            final_response_text = ai_pipeline.generate_live_response_with_llm(
-                user_query, query_category)
-            if not final_response_text:
-                final_response_text = "Спасибо за сообщение. Ошибка обработки."
-        else:
-            # Fallback без LLM
-            if query_category == "Жалобы":
-                final_response_text = "..."
-            elif query_category == "Обратная связь":
-                final_response_text = "..."
-            else:
-                final_response_text = "Спасибо за ваше сообщение!"
+                    # Fallback без LLM
+                    if query_category == "Жалобы":
+                        final_response_text = "..."
+                    elif query_category == "Обратная связь":
+                        final_response_text = "..."
+                    else:
+                        final_response_text = "Спасибо за ваше сообщение!"
 
     # --- 4. Логирование ОТВЕТА бота ---
     # ... (код без изменений, final_response_text теперь может быть перефразированным) ...
@@ -502,65 +483,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # --- Обработчик Нажатий на Кнопки (Callback) ---
 
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает нажатия на инлайн-кнопки (например, оценки)."""
-    query = update.callback_query
-    await query.answer()  # Обязательно нужно ответить на колбэк
+# async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Обрабатывает нажатия на инлайн-кнопки (например, оценки)."""
+#     query = update.callback_query
+#     await query.answer()  # Обязательно нужно ответить на колбэк
 
-    callback_data = query.data
-    user = query.from_user
-    logger.info(
-        f"Получен callback от {user.id} ({user.username}): {callback_data}")
+#     callback_data = query.data
+#     user = query.from_user
+#     logger.info(
+#         f"Получен callback от {user.id} ({user.username}): {callback_data}")
 
-    # Парсим callback_data (пример: "rate_up_faq_1_123")
-    parts = callback_data.split('_')
-    action = parts[0]
-    rate_type = parts[1]
-    # ID фрагмента базы знаний
-    item_id = parts[2] if len(parts) > 2 else "no_id"
-    interaction_to_rate_id = int(parts[3]) if len(
-        parts) > 3 else 0  # ID взаимодействия
+#     # Парсим callback_data (пример: "rate_up_faq_1_123")
+#     parts = callback_data.split('_')
+#     action = parts[0]
+#     rate_type = parts[1]
+#     # ID фрагмента базы знаний
+#     item_id = parts[2] if len(parts) > 2 else "no_id"
+#     interaction_to_rate_id = int(parts[3]) if len(
+#         parts) > 3 else 0  # ID взаимодействия
 
-    if action == "rate" and interaction_to_rate_id:
-        rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
-        if rating != 0:
-            # Записываем оценку в БД
-            # success = database.log_rating(
-            #     interaction_id=interaction_to_rate_id,
-            #     user_telegram_id=user.id,
-            #     rating_value=rating
-            # )
+#     if action == "rate" and interaction_to_rate_id:
+#         rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
+#         if rating != 0:
+#             # Записываем оценку в БД
+#             # success = database.log_rating(
+#             #     interaction_id=interaction_to_rate_id,
+#             #     user_telegram_id=user.id,
+#             #     rating_value=rating
+#             # )
 
-            # Логируем оценку в канал
-            rating_text = "👍 Положительная" if rating == 1 else "👎 Отрицательная"
-            log_rating_message = (
-                f"⭐ <b>Оценка получена</b>\n"
-                f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
-                f"Оценка: {rating_text}\n"
-                f"ID взаимодействия: {interaction_to_rate_id}\n"
-                f"ID фрагмента: {item_id}"
-            )
-            await send_to_log_channel(context, log_rating_message, parse_mode="HTML")
+#             # Логируем оценку в канал
+#             rating_text = "👍 Положительная" if rating == 1 else "👎 Отрицательная"
+#             log_rating_message = (
+#                 f"⭐ <b>Оценка получена</b>\n"
+#                 f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+#                 f"Оценка: {rating_text}\n"
+#                 f"ID взаимодействия: {interaction_to_rate_id}\n"
+#                 f"ID фрагмента: {item_id}"
+#             )
+#             await send_to_log_channel(context, log_rating_message, parse_mode="HTML")
 
-            if success:
-                # Редактируем сообщение (убираем кнопки или добавляем текст)
-                await query.edit_message_text(
-                    text=query.message.text_html + "\n\n<i>Спасибо за вашу оценку!</i>",
-                    parse_mode='HTML',
-                    reply_markup=None  # Убираем клавиатуру
-                )
-            else:
-                await query.answer("Не удалось сохранить оценку.", show_alert=True)
+#             if success:
+#                 # Редактируем сообщение (убираем кнопки или добавляем текст)
+#                 await query.edit_message_text(
+#                     text=query.message.text_html + "\n\n<i>Спасибо за вашу оценку!</i>",
+#                     parse_mode='HTML',
+#                     reply_markup=None  # Убираем клавиатуру
+#                 )
+#             else:
+#                 await query.answer("Не удалось сохранить оценку.", show_alert=True)
 
-                # Логируем ошибку оценки
-                log_rating_error = (
-                    f"❌ <b>Ошибка сохранения оценки</b>\n"
-                    f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
-                    f"ID взаимодействия: {interaction_to_rate_id}"
-                )
-                await send_to_log_channel(context, log_rating_error, parse_mode="HTML")
-        else:
-            logger.warning(f"Неверный тип оценки: {rate_type}")
+#                 # Логируем ошибку оценки
+#                 log_rating_error = (
+#                     f"❌ <b>Ошибка сохранения оценки</b>\n"
+#                     f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+#                     f"ID взаимодействия: {interaction_to_rate_id}"
+#                 )
+#                 await send_to_log_channel(context, log_rating_error, parse_mode="HTML")
+#         else:
+#             logger.warning(f"Неверный тип оценки: {rate_type}")
 
     # except (IndexError, ValueError) as e:
     #     logger.error(f"Ошибка парсинга callback_data '{callback_data}': {e}")
@@ -569,36 +550,36 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     #         f"Непредвиденная ошибка в button_callback: {e}", exc_info=True)
 
 
-async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отправляет пользователю историю его последних взаимодействий."""
-    user = update.effective_user
-    logger.info(f"Пользователь {user.id} запросил историю.")
+# async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """Отправляет пользователю историю его последних взаимодействий."""
+#     user = update.effective_user
+#     logger.info(f"Пользователь {user.id} запросил историю.")
 
-    # history_records = database.get_user_history(
-    #     user.id, limit=10)  # Запросим последние 10 "пар"
+#     # history_records = database.get_user_history(
+#     #     user.id, limit=10)  # Запросим последние 10 "пар"
 
-    if not history_records:
-        await update.message.reply_text("Ваша история сообщений пока пуста.")
-        return
+#     if not history_records:
+#         await update.message.reply_text("Ваша история сообщений пока пуста.")
+#         return
 
-    response_text = "<b>Ваша недавняя история:</b>\n\n"
-    # Форматируем историю для вывода
-    # Простой вариант: просто списком
-    for record in history_records:
-        prefix = "👤 Вы:" if record['is_from_user'] else "🤖 Бот:"
-        timestamp_str = record['timestamp'].split(
-            '.')[0]  # Убираем миллисекунды для краткости
-        # Экранируем HTML-символы в тексте сообщения перед добавлением префикса
-        safe_message = html.escape(record['message_text'])
-        # Используем HTML форматирование
-        response_text += f"<code>{timestamp_str}</code>\n{prefix} {safe_message}\n\n"
-        # Лимит Telegram на длину сообщения - около 4096 символов.
-        if len(response_text) > 3800:  # Оставляем запас
-            await update.message.reply_html(response_text)
-            response_text = ""  # Начинаем новое сообщение
+#     response_text = "<b>Ваша недавняя история:</b>\n\n"
+#     # Форматируем историю для вывода
+#     # Простой вариант: просто списком
+#     for record in history_records:
+#         prefix = "👤 Вы:" if record['is_from_user'] else "🤖 Бот:"
+#         timestamp_str = record['timestamp'].split(
+#             '.')[0]  # Убираем миллисекунды для краткости
+#         # Экранируем HTML-символы в тексте сообщения перед добавлением префикса
+#         safe_message = html.escape(record['message_text'])
+#         # Используем HTML форматирование
+#         response_text += f"<code>{timestamp_str}</code>\n{prefix} {safe_message}\n\n"
+#         # Лимит Telegram на длину сообщения - около 4096 символов.
+#         if len(response_text) > 3800:  # Оставляем запас
+#             await update.message.reply_html(response_text)
+#             response_text = ""  # Начинаем новое сообщение
 
-    if response_text:  # Отправляем остаток, если есть
-        await update.message.reply_html(response_text)
+#     if response_text:  # Отправляем остаток, если есть
+#         await update.message.reply_html(response_text)
 
 
 # --- Основная функция запуска ---
