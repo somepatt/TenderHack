@@ -1,3 +1,4 @@
+import database
 import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -32,7 +33,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_html(
         f"Привет, {user.mention_html()}!\n"
         f"Я AI-ассистент по Порталу поставщиков. Задайте ваш вопрос.",
-        # disable_web_page_preview=True # Если не хотим превью ссылок
     )
 
 
@@ -45,7 +45,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "- Как подать заявку на котировочную сессию?\n"
         "- Нужна ли электронная подпись для регистрации?\n"
         "- Ошибка при подписании: не удалось построить цепочку сертификатов"
-        # Добавьте другие команды, если они появятся (/history и т.д.)
     )
     await update.message.reply_text(help_text)
 
@@ -61,8 +60,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     logger.info(
         f"Получен запрос от {user.id} ({user.username}): '{user_query}'")
 
+    request_interaction_id = database.log_interaction(
+        user_telegram_id=user.id,
+        is_from_user=True,
+        message_text=user_query
+    )
+
     if not ai_pipeline.get_ai_status():
         logger.error("AI Core не инициализирован. Ответ невозможен.")
+        database.log_interaction(
+            user_telegram_id=user.id,
+            is_from_user=False,
+            message_text=error_text,
+            request_interaction_id=request_interaction_id  # Связываем с запросом
+        )
         await update.message.reply_text("Извините, сервис временно недоступен. Попробуйте позже.")
         return
 
@@ -76,10 +87,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Берем лучший результат
         best_result = search_results[0]
         response_parts = []
-        response_parts.append(
-            f"Нашел ответ (схожесть: {best_result['similarity']:.2f}):\n"
-            # f"_(Возможно, по запросу: '{corrected_query}')_\n" # Если используем исправление
-        )
         # Используем HTML для лучшего форматирования ссылок и выделения
         response_parts.append(
             f"<blockquote>{best_result['text']}</blockquote>")  # Цитируем текст
@@ -97,6 +104,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        response_interaction_id = database.log_interaction(
+            user_telegram_id=user.id,
+            is_from_user=False,
+            message_text=response_text,  # Записываем уже сформированный текст
+            request_interaction_id=request_interaction_id,
+            matched_kb_id=best_result.get('id'),
+            similarity_score=best_result.get('similarity')
+        )
+
         await update.message.reply_html(response_text, reply_markup=reply_markup)
         log_data = {"query": user_query, "result_id": best_result.get(
             'id'), "similarity": best_result['similarity']}
@@ -111,6 +127,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ]
         # Или можно сделать callback_data="ask_operator" и обработать его
         reply_markup = InlineKeyboardMarkup(keyboard)
+
+        response_interaction_id = database.log_interaction(
+            user_telegram_id=user.id,
+            is_from_user=False,
+            message_text=response_text,
+            request_interaction_id=request_interaction_id
+        )
 
         await update.message.reply_text(response_text, reply_markup=reply_markup)
         log_data = {"query": user_query, "result_id": None, "similarity": 0.0}
@@ -135,23 +158,69 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Парсим callback_data (пример: "rate_up_faq_1")
     parts = callback_data.split('_')
     action = parts[0]
-    rate_type = parts[1] if len(parts) > 1 else None
-    item_id = "_".join(parts[2:]) if len(
-        parts) > 2 else None  # ID может содержать '_'
+    rate_type = parts[1]
+    # ID теперь относится к interaction_id ответа бота
+    interaction_to_rate_id = int(parts[3])  # Преобразуем в int
 
-    if action == "rate" and rate_type and item_id:
+    if action == "rate" and interaction_to_rate_id:
         rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
-        logger.info(
-            f"Пользователь {user.id} оценил ответ {item_id} как {rating}")
-        # --- Сохранение оценки в БД ---
-        # save_rating_to_db(user.id, item_id, rating) # Ваша функция
+        if rating != 0:
+            # Записываем оценку в БД
+            success = database.log_rating(
+                interaction_id=interaction_to_rate_id,
+                user_telegram_id=user.id,
+                rating_value=rating
+            )
+            if success:
+                # Редактируем сообщение (убираем кнопки или добавляем текст)
+                await query.edit_message_text(
+                    text=query.message.text_html + "\n\n<i>Спасибо за вашу оценку!</i>",
+                    parse_mode='HTML',
+                    reply_markup=None  # Убираем клавиатуру
+                )
+            else:
+                await query.answer("Не удалось сохранить оценку.", show_alert=True)
+        else:
+            logger.warning(f"Неверный тип оценки: {rate_type}")
 
-        # Можно отредактировать сообщение, убрав кнопки или добавив текст "Спасибо за оценку!"
-        await query.edit_message_text(text=query.message.text_html + "\n\n<i>Спасибо за вашу оценку!</i>", parse_mode='HTML')
-        # Или просто убрать кнопки
-        # await query.edit_message_reply_markup(reply_markup=None)
+    # except (IndexError, ValueError) as e:
+    #     logger.error(f"Ошибка парсинга callback_data '{callback_data}': {e}")
+    # except Exception as e:
+    #     logger.error(
+    #         f"Непредвиденная ошибка в button_callback: {e}", exc_info=True)
 
-    # Добавьте обработку других кнопок, если нужно (ask_operator и т.д.)
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет пользователю историю его последних взаимодействий."""
+    user = update.effective_user
+    logger.info(f"Пользователь {user.id} запросил историю.")
+
+    history_records = database.get_user_history(
+        user.id, limit=10)  # Запросим последние 10 "пар"
+
+    if not history_records:
+        await update.message.reply_text("Ваша история сообщений пока пуста.")
+        return
+
+    response_text = "<b>Ваша недавняя история:</b>\n\n"
+    # Форматируем историю для вывода
+    # Простой вариант: просто списком
+    for record in history_records:
+        prefix = "👤 Вы:" if record['is_from_user'] else "🤖 Бот:"
+        timestamp_str = record['timestamp'].split(
+            '.')[0]  # Убираем миллисекунды для краткости
+        # Экранируем HTML-символы в тексте сообщения перед добавлением префикса
+        safe_message = telegram.helpers.escape_markdown(
+            record['message_text'], version=2)  # Или escape_html
+        # Используем Markdown V2 для совместимости с escape_markdown
+        response_text += f"`{timestamp_str}`\n{prefix} {safe_message}\n\n"
+        # Лимит Telegram на длину сообщения - около 4096 символов.
+        if len(response_text) > 3800:  # Оставляем запас
+            await update.message.reply_markdown_v2(response_text)
+            response_text = ""  # Начинаем новое сообщение
+
+    if response_text:  # Отправляем остаток, если есть
+        await update.message.reply_markdown_v2(response_text)
 
 
 # --- Основная функция запуска ---
@@ -162,6 +231,9 @@ def main() -> None:
         logger.critical(
             "TELEGRAM_BOT_TOKEN не установлен! Бот не может быть запущен.")
         return
+
+    logger.info("Инициализация базы данных...")
+    database.init_db()  # Вызываем инициализацию
 
     # 1. Инициализация AI ядра
     logger.info("Инициализация AI ядра...")
@@ -180,6 +252,7 @@ def main() -> None:
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(CommandHandler("history", history_command))
     # Добавьте другие обработчики...
 
     # 4. Запуск бота

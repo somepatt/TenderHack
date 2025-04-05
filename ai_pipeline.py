@@ -9,7 +9,7 @@ import pandas as pd
 # --- Конфигурация AI ---
 MODEL_NAME = os.environ.get(
     'EMBEDDING_MODEL', 'paraphrase-multilingual-mpnet-base-v2')
-SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', 0.6))
+SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', 0.75))
 TOP_K = int(os.environ.get('TOP_K_RESULTS', 3))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 XLS_PATH = 'data/Статьи.xls'
