@@ -15,7 +15,7 @@ import pdf_processor
 RETRIEVAL_MODEL_NAME = os.environ.get(
     'EMBEDDING_MODEL', 'paraphrase-multilingual-mpnet-base-v2')
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', 0.6))
-TOP_K = int(os.environ.get('TOP_K_RESULTS', 1))
+TOP_K = int(os.environ.get('TOP_K_RESULTS', 3))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 XLS_PATH = 'data/Статьи.xls'
 CPU_DTYPE = torch.float32
@@ -25,9 +25,9 @@ GENERATION_MODEL_NAME = os.environ.get(
     'GENERATION_MODEL', 'google/gemma-3-1b-it')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
-    'MAX_NEW_TOKENS_RAG', 200))  # Для ответа по БЗ
+    'MAX_NEW_TOKENS_RAG', 200))
 MAX_NEW_TOKENS_LIVE = int(os.environ.get(
-    'MAX_NEW_TOKENS_LIVE', 100))  # Для "живого" ответа
+    'MAX_NEW_TOKENS_LIVE', 100))
 MAX_NEW_TOKENS_PARAPHRASE = int(os.environ.get(
     'MAX_NEW_TOKENS_LIVE', 250))
 
@@ -324,8 +324,7 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
     context_str = ""
     sources = set()
     for i, ctx in enumerate(context_list):
-        context_str += f"Контекст {i+1}:\n Найденный Вопрос: {ctx}\n"
-        print(ctx)
+        context_str += f"{ctx['content']}\n"
 
     source_str = ", ".join(sources) if sources else "База Знаний"
     prompt = f"""
@@ -414,61 +413,6 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
         logger.error(
             f"Ошибка генерации 'живого' ответа LLM: {e}", exc_info=True)
         return "Спасибо за ваше сообщение. Возникла техническая ошибка при обработке."
-
-
-def paraphrase_text_with_llm(text_to_paraphrase: str) -> Optional[str]:
-    """
-    Перефразирует заданный текст с помощью LLM (Gemma).
-    """
-    global _generation_pipeline, _tokenizer_llm
-
-    if _generation_pipeline is None:
-        logger.warning(
-            "Generation pipeline недоступен, перефразирование невозможно.")
-        return None
-    if not text_to_paraphrase:
-        logger.warning("Получен пустой текст для перефразирования.")
-        return None
-
-    prompt = f"""<start_of_turn>user
-            Перефразируй следующий текст, полностью сохранив его смысл, но изложив другими словами. Сделай перефразированный текст естественным и понятным для пользователя. Не добавляй никакой новой информации.
-
-            ТЕКСТ ДЛЯ ПЕРЕФРАЗИРОВАНИЯ:
-            {text_to_paraphrase}
-            <end_of_turn>
-            <start_of_turn>model
-            Перефразированный текст: """
-
-    logger.debug(f"Промпт для LLM (Paraphrase):\n{prompt}")
-    try:
-        logger.info(f"Перефразирование текста: '{text_to_paraphrase[:60]}...'")
-        generation_args = {
-            "max_new_tokens": MAX_NEW_TOKENS_PARAPHRASE,
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "do_sample": True,
-            "eos_token_id": _tokenizer_llm.eos_token_id,
-        }
-
-        results = _generation_pipeline(prompt, **generation_args)
-        generated_text_full = results[0]['generated_text']
-        paraphrased_text = generated_text_full[len(prompt):].strip()
-        if paraphrased_text.endswith("<end_of_turn>"):
-            paraphrased_text = paraphrased_text[:-len("<end_of_turn>")].strip()
-
-        if not paraphrased_text or len(paraphrased_text) < 10:
-            logger.warning(
-                f"Перефразирование вернуло слишком короткий/пустой результат: '{paraphrased_text}'. Используем оригинал.")
-            return None
-
-        logger.info(f"Текст успешно перефразирован.")
-        logger.debug(f"Оригинал: {text_to_paraphrase}")
-        logger.debug(f"Перефраз: {paraphrased_text}")
-        return paraphrased_text
-
-    except Exception as e:
-        logger.error(f"Ошибка перефразирования текста: {e}", exc_info=True)
-        return None
 
 
 def get_ai_status():
