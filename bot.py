@@ -8,6 +8,7 @@ from telegram.ext import (
 # Импортируем функции из нашего AI модуля
 import ai_pipeline
 
+load_dotenv()
 # --- Конфигурация Бота ---
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
