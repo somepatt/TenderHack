@@ -364,8 +364,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         query_category = "Общие вопросы"
 
     # --- 2. Логирование запроса ---
-    request_interaction_id = database.log_interaction(
-        user.id, True, user_query, query_category)
+    # request_interaction_id = database.log_interaction(
+    #     user.id, True, user_query, query_category)
 
     # --- 3. Выбор стратегии и ответ ---
     final_response_text = ""
@@ -484,10 +484,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # --- 4. Логирование ОТВЕТА бота ---
     # ... (код без изменений, final_response_text теперь может быть перефразированным) ...
-    response_interaction_id = database.log_interaction(
-        user.id, False, final_response_text, None, request_interaction_id,
-        kb_id_for_log, similarity_for_log
-    )
+    # response_interaction_id = database.log_interaction(
+    #     user.id, False, final_response_text, None, request_interaction_id,
+    #     kb_id_for_log, similarity_for_log
+    # )
 
     # --- 5. Формирование кнопок и отправка ---
     # ... (код без изменений) ...
