@@ -324,7 +324,8 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
     context_str = ""
     sources = set()
     for i, ctx in enumerate(context_list):
-        context_str += f"Контекст {i+1}:\n Найденный Вопрос: {ctx['content']}\n"
+        context_str += f"Контекст {i+1}:\n Найденный Вопрос: {ctx}\n"
+        print(ctx)
         if ctx.get('source'):
             sources.add(ctx['source'])
     source_str = ", ".join(sources) if sources else "База Знаний"
