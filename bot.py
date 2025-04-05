@@ -614,8 +614,8 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(CommandHandler("history", history_command))
+    # application.add_handler(CallbackQueryHandler(button_callback))
+    # application.add_handler(CommandHandler("history", history_command))
     # Добавьте другие обработчики...
 
     # 4. Запуск бота
