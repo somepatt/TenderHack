@@ -28,7 +28,8 @@ MAX_NEW_TOKENS_RAG = int(os.environ.get(
     'MAX_NEW_TOKENS_RAG', 200))  # Для ответа по БЗ
 MAX_NEW_TOKENS_LIVE = int(os.environ.get(
     'MAX_NEW_TOKENS_LIVE', 100))  # Для "живого" ответа
-
+MAX_NEW_TOKENS_PARAPHRASE = int(os.environ.get(
+    'MAX_NEW_TOKENS_LIVE', 250))
 
 logger = logging.getLogger(__name__)
 

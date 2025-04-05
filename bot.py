@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constan
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 )
-import telegram.helpers
+# import telegram.helpers
 import html
 from dotenv import load_dotenv
 
@@ -409,7 +409,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         logger.info("Используем перефразированный ответ.")
                         response_parts = [
                             f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
-                            f"<blockquote>{telegram.helpers.escape_html(paraphrased_answer)}</blockquote>",
+                            f"<blockquote>{html.escape(paraphrased_answer)}</blockquote>",
                             f"<b>Источник:</b> {source}"
                         ]
                         final_response_text = "\n".join(response_parts)
@@ -420,7 +420,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         response_parts = [
                             f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
                             "<b>Ответ:</b>",
-                            f"<blockquote>{telegram.helpers.escape_html(original_content)}</blockquote>",
+                            f"<blockquote>{html.escape(original_content)}</blockquote>",
                             f"<b>Источник:</b> {source}"
                         ]
                         final_response_text = "\n".join(response_parts)
@@ -444,7 +444,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         logger.warning(
                             "Не удалось сгенерировать ответ LLM по PDF, показываем текст чанка.")
                         response_parts = [f"Нашел релевантный фрагмент в документе '{source}' (схожесть: {similarity_for_log:.2f}):",
-                                          f"<blockquote>{telegram.helpers.escape_html(original_content)}</blockquote>",
+                                          f"<blockquote>{html.escape(original_content)}</blockquote>",
                                           f"<b>Источник:</b> {source}"]
                         final_response_text = "\n".join(response_parts)
                 else:
@@ -491,14 +491,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # --- 5. Формирование кнопок и отправка ---
     # ... (код без изменений) ...
-    if response_interaction_id and kb_id_for_log:
-        keyboard = [[InlineKeyboardButton("👍", callback_data=f"rate_up_{response_interaction_id}"),
-                     InlineKeyboardButton("👎", callback_data=f"rate_down_{response_interaction_id}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    elif query_category == "Жалобы" or not best_match_item and query_category in ai_pipeline.SEARCH_KB_CATEGORIES:
-        keyboard = [[InlineKeyboardButton(
-            "❓ Задать вопрос оператору", url="...")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+    # if response_interaction_id and kb_id_for_log:
+    #     keyboard = [[InlineKeyboardButton("👍", callback_data=f"rate_up_{response_interaction_id}"),
+    #                  InlineKeyboardButton("👎", callback_data=f"rate_down_{response_interaction_id}")]]
+    #     reply_markup = InlineKeyboardMarkup(keyboard)
+    # elif query_category == "Жалобы" or not best_match_item and query_category in ai_pipeline.SEARCH_KB_CATEGORIES:
+    #     keyboard = [[InlineKeyboardButton(
+    #         "❓ Задать вопрос оператору", url="...")]]
+    #     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
         await update.message.reply_html(final_response_text, reply_markup=reply_markup)
