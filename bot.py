@@ -4,6 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 )
+from dotenv import load_dotenv
 
 # Импортируем функции из нашего AI модуля
 import ai_pipeline
