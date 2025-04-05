@@ -22,7 +22,7 @@ CPU_DTYPE = torch.float32
 
 
 GENERATION_MODEL_NAME = os.environ.get(
-    'GENERATION_MODEL', 'meta-llama/Llama-3.2-3B-Instruct')
+    'GENERATION_MODEL', 'mistralai/Mistral-7B-v0.1')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
     'MAX_NEW_TOKENS_RAG', 200))  # Для ответа по БЗ
