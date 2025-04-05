@@ -129,15 +129,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(error_text)
         return
 
-    # --- Сюда можно добавить предобработку: исправление опечаток ---
-    # corrected_query = ai_pipeline.correct_spelling(user_query)
-    # search_results = ai_pipeline.find_relevant_knowledge(corrected_query)
     search_results = ai_pipeline.retrieve_context(user_query)
 
     # --- Формируем ответ ---
     if search_results:
         # Берем лучший результат
-        best_result = search_results[0]
+        best_result = search_results
         response_parts = []
         # Используем HTML для лучшего форматирования ссылок и выделения
         response_parts.append(
