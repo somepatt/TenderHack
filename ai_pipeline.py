@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 import pdf_processor
 
+
 # --- Конфигурация AI ---
 RETRIEVAL_MODEL_NAME = os.environ.get(
     'EMBEDDING_MODEL', 'paraphrase-multilingual-mpnet-base-v2')
@@ -18,6 +19,7 @@ TOP_K = int(os.environ.get('TOP_K_RESULTS', 1))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 XLS_PATH = 'data/Статьи.xls'
 CPU_DTYPE = torch.float32
+
 
 GENERATION_MODEL_NAME = os.environ.get(
     'GENERATION_MODEL', 'google/gemma-2b-it')
@@ -101,6 +103,7 @@ _kb_data_indexed = []
 _is_initialized_retrieval = False
 _generation_pipeline = None
 _is_initialized_generation = False
+_retrieval_model = None
 
 
 def initialize_ai_core():
@@ -110,7 +113,7 @@ def initialize_ai_core():
     Возвращает True при успехе, False при ошибке.
     """
     global _embedding_model, _kb_embeddings, _kb_data_indexed, knowledge_base, _is_initialized_retrieval
-    global _generation_pipeline, _tokenizer_llm, _is_initialized_generation
+    global _generation_pipeline, _tokenizer_llm, _is_initialized_generation, _retrieval_model
 
     if _is_initialized_retrieval and _is_initialized_generation:
         logger.info("AI Core (Retrieval & Generation) уже инициализирован.")
