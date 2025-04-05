@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 # --- Константы ---
 # Эти значения можно будет переопределить при вызове функций
-DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_SIZE = 700
 DEFAULT_CHUNK_OVERLAP = 100
 
 
@@ -34,17 +34,16 @@ def extract_text_from_pdf(filepath: str) -> Optional[str]:
                     page_obj = pdf_reader.pages[page_num]
                     page_text = page_obj.extract_text()
                     if page_text:
-                        # Простая очистка: заменяем множественные пробелы на один
                         page_text = re.sub(r'\s+', ' ', page_text).strip()
-                        # Добавляем маркер страницы для потенциального использования
-                        text += f"\n\n[Стр. {page_num + 1}]\n" + page_text
+                        page_text = re.sub(r'\.', '', page_text).strip()
+                        text += page_text
                     else:
                         logger.debug(
                             f"На странице {page_num + 1} в '{filename}' текст не найден.")
                 except Exception as page_e:
                     logger.warning(
                         f"Ошибка при обработке страницы {page_num + 1} в файле '{filename}': {page_e}")
-                    continue  # Пропускаем страницу при ошибке
+                    continue
         return text.strip() if text else None
     except FileNotFoundError:
         logger.error(f"Файл PDF не найден: {filepath}")
@@ -72,7 +71,7 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: i
     if chunk_overlap >= chunk_size:
         logger.warning(
             f"Перекрытие ({chunk_overlap}) больше или равно размеру чанка ({chunk_size}). Устанавливаю перекрытие в {chunk_size // 5}.")
-        chunk_overlap = chunk_size // 5  # Устанавливаем разумное перекрытие
+        chunk_overlap = chunk_size // 5
 
     chunks = []
     start_index = 0
@@ -83,11 +82,8 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: i
         chunk = text[start_index:end_index]
         chunks.append(chunk)
 
-        # Сдвигаем начало следующего чанка
-        # Если нет перекрытия, сдвиг = chunk_size
-        # Если есть перекрытие, сдвиг = chunk_size - chunk_overlap
         next_start = start_index + chunk_size - chunk_overlap
-        # Предотвращаем бесконечный цикл, если overlap большой, а chunk маленький
+
         if next_start <= start_index:
             next_start = start_index + 1
 
@@ -126,14 +122,12 @@ def load_and_chunk_pdfs(folder_path: str,
                 filepath = os.path.join(folder_path, filename)
                 logger.info(f"Обработка файла: {filename}")
 
-                # 1. Извлечение текста
                 full_text = extract_text_from_pdf(filepath)
                 if not full_text:
                     logger.warning(
                         f"Не удалось извлечь текст или файл пуст: {filename}")
                     continue
 
-                # 2. Чанкинг
                 text_chunks = chunk_text(full_text, chunk_size, chunk_overlap)
                 if not text_chunks:
                     logger.warning(
@@ -142,13 +136,10 @@ def load_and_chunk_pdfs(folder_path: str,
                 logger.info(
                     f"'{filename}' разбит на {len(text_chunks)} чанков (размер ~{chunk_size}, перекрытие ~{chunk_overlap}).")
 
-                # 3. Формирование данных для индексации
                 for i, chunk in enumerate(text_chunks):
                     chunk_data = {
-                        # Уникальный ID чанка
                         "id": f"pdf_{filename}_chunk_{chunk_id_counter}",
-                        "text": chunk,                                     # Текст чанка
-                        # Источник (имя файла)
+                        "text": chunk,
                         "source": f"Документ: {filename}",
                         # Сюда можно добавить извлечение номера страницы, если маркер [Стр. X] найден в chunk
                     }
@@ -168,3 +159,6 @@ def load_and_chunk_pdfs(folder_path: str,
     logger.info(
         f"Обработка PDF завершена. Всего создано {len(all_chunks_data)} чанков.")
     return all_chunks_data
+
+
+print(load_and_chunk_pdfs('knowledge_pdfs')[100])

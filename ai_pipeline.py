@@ -143,20 +143,19 @@ def initialize_ai_core():
         unified_kb_data = []
         texts_to_embed = []
 
-        for item in raw_excel_data:
-            unified_kb_data.append({
-                "id": item["id"],
-                "text_to_index": item["question"],
-                "source": item["source"],
-                "data_type": "csv",
-                "content": item["answer"],
-            })
-            texts_to_embed.append(item["question"])
+        # for item in raw_excel_data:
+        #     unified_kb_data.append({
+        #         "id": item["id"],
+        #         "text_to_index": item["question"],
+        #         "source": item["source"],
+        #         "data_type": "csv",
+        #         "content": item["answer"],
+        #     })
+        #     texts_to_embed.append(item["question"])
 
         for item in chunked_kb_data:
             unified_kb_data.append({
                 "id": item["id"],
-                "text_to_index": item["text"],
                 "source": item["source"],
                 "data_type": "pdf",
                 "content": item["text"],
@@ -167,7 +166,7 @@ def initialize_ai_core():
 
         if _kb_data_indexed:
             texts_to_embed = [
-                item['question'] if 'question' in item else item['text_to_index'] for item in _kb_data_indexed]
+                item['question'] if 'question' in item else item['content'] for item in _kb_data_indexed]
             try:
                 kb_embeddings_tensor = _retrieval_model.encode(
                     texts_to_embed, convert_to_tensor=True, normalize_embeddings=True, show_progress_bar=True, device=DEVICE)
