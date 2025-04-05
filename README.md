@@ -109,7 +109,3 @@ python admin_bot.py
 - `query_count` - Количество запросов по данной теме
 - `average_rating` - Средняя оценка ответов по теме
 - `last_updated` - Время последнего обновления
-
-## Интеграция
-
-Подробная информация по интеграции компонентов находится в файле [integration_guide.md](./integration_guide.md).
