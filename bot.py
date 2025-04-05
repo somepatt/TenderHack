@@ -1,19 +1,28 @@
-import database
 import logging
 import os
-import html
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 )
+import telegram.helpers
+import html
 from dotenv import load_dotenv
+
 
 # Импортируем функции из нашего AI модуля
 import ai_pipeline
+import database
 
 load_dotenv()
 # --- Конфигурация Бота ---
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")
+USE_LLM_GENERATION = os.environ.get(
+    'USE_LLM_GENERATION', 'True').lower() == 'true'
+# Можно добавить флаг для включения/отключения классификации
+USE_LLM_CLASSIFICATION = os.environ.get(
+    'USE_LLM_CLASSIFICATION', 'True').lower() == 'true'
+PARAPHRASE_CSV_ANSWERS = os.environ.get(
+    'PARAPHRASE_CSV_ANSWERS', 'True').lower() == 'true'
 # ID канала для логирования событий
 LOG_CHANNEL_ID = os.environ.get("LOG_CHANNEL_ID")
 
@@ -75,11 +84,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # --- Обработчик Сообщений ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает текстовое сообщение пользователя, ищет ответ и отправляет его."""
     user_query = update.message.text
     user = update.effective_user
     chat_id = update.message.chat_id
-
     logger.info(
         f"Получен запрос от {user.id} ({user.username}): '{user_query}'")
     
@@ -92,6 +99,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     await send_to_log_channel(context, log_question_message, parse_mode="HTML")
 
+
+    retrieval_ok, generation_ok = ai_pipeline.get_ai_status()
     request_interaction_id = database.log_interaction(
         user_telegram_id=user.id,
         is_from_user=True,
@@ -167,11 +176,132 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         await send_to_log_channel(context, log_answer_message, parse_mode="HTML")
 
-        await update.message.reply_html(response_text, reply_markup=reply_markup)
-        log_data = {"query": user_query, "result_id": best_result.get(
-            'id'), "similarity": best_result['similarity']}
+    # --- 1. Классификация ---
+    query_category = "Другое"
+    if USE_LLM_CLASSIFICATION and generation_ok:
+        await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
+        query_category = ai_pipeline.classify_query_type_with_llm(user_query)
+    elif not generation_ok:
+        query_category = "Общие вопросы"
 
+    # --- 2. Логирование запроса ---
+    request_interaction_id = database.log_interaction(
+        user.id, True, user_query, query_category)
+
+    # --- 3. Выбор стратегии и ответ ---
+    final_response_text = ""
+    kb_id_for_log = None
+    similarity_for_log = None
+    reply_markup = None
+    best_match_item = None  # Объявляем здесь
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
+
+    # --- Стратегия А: Поиск в Базе Знаний (CSV/PDF) ---
+    if query_category in ai_pipeline.SEARCH_KB_CATEGORIES:
+        logger.info(
+            f"Категория '{query_category}' требует поиска в БЗ (CSV/PDF).")
+        if not retrieval_ok:
+            final_response_text = "Извините, сервис временно недоступен (ошибка поиска)."
+        else:
+            best_match_item = ai_pipeline.retrieve_context(user_query)
+
+            if best_match_item:
+                kb_id_for_log = best_match_item.get('id')
+                similarity_for_log = best_match_item.get('similarity')
+                data_type = best_match_item.get('data_type')
+                source = best_match_item.get('source', 'База Знаний')
+                # Оригинальный контент (ответ CSV или чанк PDF)
+                original_content = best_match_item.get('content', '')
+
+                # --- Если нашли ответ в CSV ---
+                if data_type == 'csv':
+                    logger.info(
+                        f"Найден готовый ответ в CSV (ID: {kb_id_for_log}).")
+                    paraphrased_answer = None
+                    # --- Попытка перефразирования ---
+                    if PARAPHRASE_CSV_ANSWERS and generation_ok:
+                        logger.info("Пытаемся перефразировать ответ из CSV...")
+                        paraphrased_answer = ai_pipeline.paraphrase_text_with_llm(
+                            original_content)
+
+                    if paraphrased_answer:
+                        # Используем перефразированный ответ
+                        logger.info("Используем перефразированный ответ.")
+                        response_parts = [
+                            f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
+                            f"<blockquote>{telegram.helpers.escape_html(paraphrased_answer)}</blockquote>",
+                            f"<b>Источник:</b> {source}"
+                        ]
+                        final_response_text = "\n".join(response_parts)
+                    else:
+                        # Используем оригинальный ответ (fallback)
+                        logger.info(
+                            "Используем оригинальный ответ из CSV (перефразирование не удалось или отключено).")
+                        response_parts = [
+                            f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
+                            "<b>Ответ:</b>",
+                            f"<blockquote>{telegram.helpers.escape_html(original_content)}</blockquote>",
+                            f"<b>Источник:</b> {source}"
+                        ]
+                        final_response_text = "\n".join(response_parts)
+
+                # --- Если нашли релевантный чанк в PDF ---
+                elif data_type == 'pdf':
+                    logger.info(
+                        f"Найден релевантный чанк PDF (ID: {kb_id_for_log}).")
+                    generated_answer = None
+                    # Пытаемся сгенерировать ответ RAG
+                    if USE_LLM_GENERATION and generation_ok:
+                        logger.info(
+                            "Пытаемся сгенерировать RAG ответ по PDF...")
+                        generated_answer = ai_pipeline.generate_answer_with_llm(
+                            user_query, best_match_item)
+
+                    if generated_answer:
+                        final_response_text = generated_answer
+                    else:
+                        # Fallback: Показываем сам чанк PDF
+                        logger.warning(
+                            "Не удалось сгенерировать ответ LLM по PDF, показываем текст чанка.")
+                        response_parts = [f"Нашел релевантный фрагмент в документе '{source}' (схожесть: {similarity_for_log:.2f}):",
+                                          f"<blockquote>{telegram.helpers.escape_html(original_content)}</blockquote>",
+                                          f"<b>Источник:</b> {source}"]
+                        final_response_text = "\n".join(response_parts)
+                else:
+                    logger.error(f"Неизвестный data_type: {data_type}")
+                    final_response_text = "Произошла внутренняя ошибка."
+
+            else:  # Ничего не найдено в БЗ
+                logger.info("Релевантных данных в CSV/PDF не найдено.")
+                # ... (код генерации "из головы" или "не найдено", без изменений) ...
+                if USE_LLM_GENERATION and generation_ok:
+                    final_response_text = ai_pipeline.generate_live_response_with_llm(
+                        user_query, "Другое")
+                    if final_response_text:
+                        final_response_text += "\n\n_(Ответ сгенерирован без базы знаний)_"
+                    else:
+                        final_response_text = "К сожалению, не могу найти информацию и возникла ошибка."
+                else:
+                    final_response_text = "К сожалению, я не смог найти ответ в базе знаний."
+
+    # --- Стратегия Б: "Живое" общение ---
     else:
+        # ... (код без изменений) ...
+        logger.info(f"Категория '{query_category}' требует 'живого' ответа.")
+        if USE_LLM_GENERATION and generation_ok:
+            final_response_text = ai_pipeline.generate_live_response_with_llm(
+                user_query, query_category)
+            if not final_response_text:
+                final_response_text = "Спасибо за сообщение. Ошибка обработки."
+        else:
+            # Fallback без LLM
+            if query_category == "Жалобы":
+                final_response_text = "..."
+            elif query_category == "Обратная связь":
+                final_response_text = "..."
+            else:
+                final_response_text = "Спасибо за ваше сообщение!"
         response_text = "К сожалению, я не смог найти точный ответ в базе знаний. Попробуйте переформулировать ваш вопрос."
         # --- Кнопка связи с оператором ---
         keyboard = [
@@ -198,15 +328,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         await send_to_log_channel(context, log_no_answer_message, parse_mode="HTML")
 
-        await update.message.reply_text(response_text, reply_markup=reply_markup)
-        log_data = {"query": user_query, "result_id": None, "similarity": 0.0}
+    # --- 4. Логирование ОТВЕТА бота ---
+    # ... (код без изменений, final_response_text теперь может быть перефразированным) ...
+    response_interaction_id = database.log_interaction(
+        user.id, False, final_response_text, None, request_interaction_id,
+        kb_id_for_log, similarity_for_log
+    )
 
-    # --- Логирование Взаимодействия (замените на вашу реальную БД/файл) ---
-    logger.info(f"Interaction log for user {user.id}: {log_data}")
-    # save_interaction_to_db(user.id, log_data) # Ваша функция сохранения
+    # --- 5. Формирование кнопок и отправка ---
+    # ... (код без изменений) ...
+    if response_interaction_id and kb_id_for_log:
+        keyboard = [[InlineKeyboardButton("👍", callback_data=f"rate_up_{response_interaction_id}"),
+                     InlineKeyboardButton("👎", callback_data=f"rate_down_{response_interaction_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    elif query_category == "Жалобы" or not best_match_item and query_category in ai_pipeline.SEARCH_KB_CATEGORIES:
+        keyboard = [[InlineKeyboardButton(
+            "❓ Задать вопрос оператору", url="...")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
+    try:
+        await update.message.reply_html(final_response_text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Ошибка отправки: {e}")  # Fallback отправка
 
 # --- Обработчик Нажатий на Кнопки (Callback) ---
+
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает нажатия на инлайн-кнопки (например, оценки)."""
