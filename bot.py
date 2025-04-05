@@ -138,7 +138,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response_parts = []
         # Используем HTML для лучшего форматирования ссылок и выделения
         response_parts.append(
-            f"<blockquote>{best_result['text']}</blockquote>")  # Цитируем текст
+            f"<blockquote>{best_result['answer']}</blockquote>")  # Цитируем текст
 
         response_text = "\n".join(response_parts)
 
@@ -302,9 +302,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response_text = "К сожалению, я не смог найти точный ответ в базе знаний. Попробуйте переформулировать ваш вопрос."
         # --- Кнопка связи с оператором ---
         keyboard = [
-            # Замените на реальный контакт
             [InlineKeyboardButton(
-                "❓ Задать вопрос оператору", url="https://t.me/YOUR_SUPPORT_CONTACT")]
+                "❓ Задать вопрос оператору", url="")]
         ]
         # Или можно сделать callback_data="ask_operator" и обработать его
         reply_markup = InlineKeyboardMarkup(keyboard)

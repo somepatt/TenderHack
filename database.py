@@ -117,7 +117,7 @@ def log_interaction(
     sql = """
         INSERT INTO interactions
         (user_telegram_id, is_from_user, message_text, request_interaction_id, matched_kb_id, similarity_score, assigned_theme_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """
     params = (
         user_telegram_id,
