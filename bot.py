@@ -42,9 +42,10 @@ logger = logging.getLogger(__name__)
 async def send_to_log_channel(context: ContextTypes.DEFAULT_TYPE, message: str, parse_mode=None) -> None:
     """Отправляет сообщение в канал логирования."""
     if not LOG_CHANNEL_ID:
-        logger.warning("LOG_CHANNEL_ID не установлен. Логирование в канал отключено.")
+        logger.warning(
+            "LOG_CHANNEL_ID не установлен. Логирование в канал отключено.")
         return
-    
+
     try:
         await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
@@ -89,7 +90,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = update.message.chat_id
     logger.info(
         f"Получен запрос от {user.id} ({user.username}): '{user_query}'")
-    
+
     # Логируем новый вопрос в канал
     log_question_message = (
         f"📥 <b>Новый вопрос</b>\n"
@@ -98,7 +99,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Вопрос: <i>{html.escape(user_query)}</i>"
     )
     await send_to_log_channel(context, log_question_message, parse_mode="HTML")
-
 
     retrieval_ok, generation_ok = ai_pipeline.get_ai_status()
     request_interaction_id = database.log_interaction(
@@ -116,7 +116,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             message_text=error_text,
             request_interaction_id=request_interaction_id  # Связываем с запросом
         )
-        
+
         # Логируем ошибку в канал
         log_error_message = (
             f"❌ <b>Ошибка</b>\n"
@@ -125,14 +125,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"Ответ: <i>{html.escape(error_text)}</i>"
         )
         await send_to_log_channel(context, log_error_message, parse_mode="HTML")
-        
+
         await update.message.reply_text(error_text)
         return
 
     # --- Сюда можно добавить предобработку: исправление опечаток ---
     # corrected_query = ai_pipeline.correct_spelling(user_query)
     # search_results = ai_pipeline.find_relevant_knowledge(corrected_query)
-    search_results = ai_pipeline.find_relevant_knowledge(user_query)
+    search_results = ai_pipeline.retrieve_context(user_query)
 
     # --- Формируем ответ ---
     if search_results:
@@ -164,7 +164,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             matched_kb_id=best_result.get('id'),
             similarity_score=best_result.get('similarity')
         )
-        
+
         # Логируем ответ в канал
         log_answer_message = (
             f"📤 <b>Ответ бота</b>\n"
@@ -318,7 +318,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             message_text=response_text,
             request_interaction_id=request_interaction_id
         )
-        
+
         # Логируем отсутствие ответа в канал
         log_no_answer_message = (
             f"🔍 <b>Ответ не найден</b>\n"
@@ -368,8 +368,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     parts = callback_data.split('_')
     action = parts[0]
     rate_type = parts[1]
-    item_id = parts[2] if len(parts) > 2 else "no_id"  # ID фрагмента базы знаний
-    interaction_to_rate_id = int(parts[3]) if len(parts) > 3 else 0  # ID взаимодействия
+    # ID фрагмента базы знаний
+    item_id = parts[2] if len(parts) > 2 else "no_id"
+    interaction_to_rate_id = int(parts[3]) if len(
+        parts) > 3 else 0  # ID взаимодействия
 
     if action == "rate" and interaction_to_rate_id:
         rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
@@ -380,7 +382,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 user_telegram_id=user.id,
                 rating_value=rating
             )
-            
+
             # Логируем оценку в канал
             rating_text = "👍 Положительная" if rating == 1 else "👎 Отрицательная"
             log_rating_message = (
@@ -391,7 +393,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"ID фрагмента: {item_id}"
             )
             await send_to_log_channel(context, log_rating_message, parse_mode="HTML")
-            
+
             if success:
                 # Редактируем сообщение (убираем кнопки или добавляем текст)
                 await query.edit_message_text(
@@ -401,7 +403,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
             else:
                 await query.answer("Не удалось сохранить оценку.", show_alert=True)
-                
+
                 # Логируем ошибку оценки
                 log_rating_error = (
                     f"❌ <b>Ошибка сохранения оценки</b>\n"
@@ -459,9 +461,10 @@ def main() -> None:
         logger.critical(
             "TELEGRAM_BOT_TOKEN не установлен! Бот не может быть запущен.")
         return
-        
+
     if not LOG_CHANNEL_ID:
-        logger.warning("LOG_CHANNEL_ID не установлен! Логирование в канал отключено.")
+        logger.warning(
+            "LOG_CHANNEL_ID не установлен! Логирование в канал отключено.")
 
     logger.info("Инициализация базы данных...")
     database.init_db()  # Вызываем инициализацию
