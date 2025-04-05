@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 # Импортируем функции из нашего AI модуля
 import ai_pipeline
-import database
+# import database
 
 load_dotenv()
 # --- Конфигурация Бота ---
@@ -101,21 +101,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await send_to_log_channel(context, log_question_message, parse_mode="HTML")
 
     retrieval_ok, generation_ok = ai_pipeline.get_ai_status()
-    request_interaction_id = database.log_interaction(
-        user_telegram_id=user.id,
-        is_from_user=True,
-        message_text=user_query
-    )
+    # request_interaction_id = database.log_interaction(
+    #     user_telegram_id=user.id,
+    #     is_from_user=True,
+    #     message_text=user_query
+    # )
 
     if not ai_pipeline.get_ai_status():
         logger.error("AI Core не инициализирован. Ответ невозможен.")
         error_text = "Извините, сервис временно недоступен. Попробуйте позже."
-        database.log_interaction(
-            user_telegram_id=user.id,
-            is_from_user=False,
-            message_text=error_text,
-            request_interaction_id=request_interaction_id  # Связываем с запросом
-        )
+        # database.log_interaction(
+        #     user_telegram_id=user.id,
+        #     is_from_user=False,
+        #     message_text=error_text,
+        #     request_interaction_id=request_interaction_id  # Связываем с запросом
+        # )
 
         # Логируем ошибку в канал
         log_error_message = (
@@ -153,14 +153,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        response_interaction_id = database.log_interaction(
-            user_telegram_id=user.id,
-            is_from_user=False,
-            message_text=response_text,  # Записываем уже сформированный текст
-            request_interaction_id=request_interaction_id,
-            matched_kb_id=best_result.get('id'),
-            similarity_score=best_result.get('similarity')
-        )
+        # response_interaction_id = database.log_interaction(
+        #     user_telegram_id=user.id,
+        #     is_from_user=False,
+        #     message_text=response_text,  # Записываем уже сформированный текст
+        #     request_interaction_id=request_interaction_id,
+        #     matched_kb_id=best_result.get('id'),
+        #     similarity_score=best_result.get('similarity')
+        # )
 
         # Логируем ответ в канал
         log_answer_message = (
@@ -182,8 +182,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         query_category = "Общие вопросы"
 
     # --- 2. Логирование запроса ---
-    request_interaction_id = database.log_interaction(
-        user.id, True, user_query, query_category)
+    # request_interaction_id = database.log_interaction(
+    #     user.id, True, user_query, query_category)
 
     # --- 3. Выбор стратегии и ответ ---
     final_response_text = ""
@@ -308,12 +308,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Или можно сделать callback_data="ask_operator" и обработать его
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        response_interaction_id = database.log_interaction(
-            user_telegram_id=user.id,
-            is_from_user=False,
-            message_text=response_text,
-            request_interaction_id=request_interaction_id
-        )
+        # response_interaction_id = database.log_interaction(
+        #     user_telegram_id=user.id,
+        #     is_from_user=False,
+        #     message_text=response_text,
+        #     request_interaction_id=request_interaction_id
+        # )
 
         # Логируем отсутствие ответа в канал
         log_no_answer_message = (
@@ -326,10 +326,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # --- 4. Логирование ОТВЕТА бота ---
     # ... (код без изменений, final_response_text теперь может быть перефразированным) ...
-    response_interaction_id = database.log_interaction(
-        user.id, False, final_response_text, None, request_interaction_id,
-        kb_id_for_log, similarity_for_log
-    )
+    # response_interaction_id = database.log_interaction(
+    #     user.id, False, final_response_text, None, request_interaction_id,
+    #     kb_id_for_log, similarity_for_log
+    # )
 
     # --- 5. Формирование кнопок и отправка ---
     # ... (код без изменений) ...
@@ -373,11 +373,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
         if rating != 0:
             # Записываем оценку в БД
-            success = database.log_rating(
-                interaction_id=interaction_to_rate_id,
-                user_telegram_id=user.id,
-                rating_value=rating
-            )
+            # success = database.log_rating(
+            #     interaction_id=interaction_to_rate_id,
+            #     user_telegram_id=user.id,
+            #     rating_value=rating
+            # )
 
             # Логируем оценку в канал
             rating_text = "👍 Положительная" if rating == 1 else "👎 Отрицательная"
@@ -422,8 +422,8 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user = update.effective_user
     logger.info(f"Пользователь {user.id} запросил историю.")
 
-    history_records = database.get_user_history(
-        user.id, limit=10)  # Запросим последние 10 "пар"
+    # history_records = database.get_user_history(
+    #     user.id, limit=10)  # Запросим последние 10 "пар"
 
     if not history_records:
         await update.message.reply_text("Ваша история сообщений пока пуста.")
@@ -463,7 +463,7 @@ def main() -> None:
             "LOG_CHANNEL_ID не установлен! Логирование в канал отключено.")
 
     logger.info("Инициализация базы данных...")
-    database.init_db()  # Вызываем инициализацию
+    # database.init_db()  # Вызываем инициализацию
 
     # 1. Инициализация AI ядра
     logger.info("Инициализация AI ядра...")
