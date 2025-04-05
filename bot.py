@@ -5,11 +5,15 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 )
 import telegram.helpers
+import html
+from dotenv import load_dotenv
+
 
 # Импортируем функции из нашего AI модуля
 import ai_pipeline
 import database
 
+load_dotenv()
 # --- Конфигурация Бота ---
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")
 USE_LLM_GENERATION = os.environ.get(
@@ -19,6 +23,8 @@ USE_LLM_CLASSIFICATION = os.environ.get(
     'USE_LLM_CLASSIFICATION', 'True').lower() == 'true'
 PARAPHRASE_CSV_ANSWERS = os.environ.get(
     'PARAPHRASE_CSV_ANSWERS', 'True').lower() == 'true'
+# ID канала для логирования событий
+LOG_CHANNEL_ID = os.environ.get("LOG_CHANNEL_ID")
 
 # --- Настройка Логирования (делаем это здесь, чтобы было доступно везде) ---
 log_level_str = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -29,6 +35,24 @@ logging.basicConfig(
 # Устанавливаем уровень логгера для библиотеки telegram
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+# --- Функция для отправки логов в канал ---
+
+async def send_to_log_channel(context: ContextTypes.DEFAULT_TYPE, message: str, parse_mode=None) -> None:
+    """Отправляет сообщение в канал логирования."""
+    if not LOG_CHANNEL_ID:
+        logger.warning("LOG_CHANNEL_ID не установлен. Логирование в канал отключено.")
+        return
+    
+    try:
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=message,
+            parse_mode=parse_mode
+        )
+    except Exception as e:
+        logger.error(f"Ошибка отправки сообщения в канал логирования: {e}")
 
 
 # --- Обработчики Команд ---
@@ -65,8 +89,92 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = update.message.chat_id
     logger.info(
         f"Получен запрос от {user.id} ({user.username}): '{user_query}'")
+    
+    # Логируем новый вопрос в канал
+    log_question_message = (
+        f"📥 <b>Новый вопрос</b>\n"
+        f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+        f"Имя пользователя: @{html.escape(user.username or 'отсутствует')}\n"
+        f"Вопрос: <i>{html.escape(user_query)}</i>"
+    )
+    await send_to_log_channel(context, log_question_message, parse_mode="HTML")
+
 
     retrieval_ok, generation_ok = ai_pipeline.get_ai_status()
+    request_interaction_id = database.log_interaction(
+        user_telegram_id=user.id,
+        is_from_user=True,
+        message_text=user_query
+    )
+
+    if not ai_pipeline.get_ai_status():
+        logger.error("AI Core не инициализирован. Ответ невозможен.")
+        error_text = "Извините, сервис временно недоступен. Попробуйте позже."
+        database.log_interaction(
+            user_telegram_id=user.id,
+            is_from_user=False,
+            message_text=error_text,
+            request_interaction_id=request_interaction_id  # Связываем с запросом
+        )
+        
+        # Логируем ошибку в канал
+        log_error_message = (
+            f"❌ <b>Ошибка</b>\n"
+            f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+            f"Причина: AI Core не инициализирован\n"
+            f"Ответ: <i>{html.escape(error_text)}</i>"
+        )
+        await send_to_log_channel(context, log_error_message, parse_mode="HTML")
+        
+        await update.message.reply_text(error_text)
+        return
+
+    # --- Сюда можно добавить предобработку: исправление опечаток ---
+    # corrected_query = ai_pipeline.correct_spelling(user_query)
+    # search_results = ai_pipeline.find_relevant_knowledge(corrected_query)
+    search_results = ai_pipeline.find_relevant_knowledge(user_query)
+
+    # --- Формируем ответ ---
+    if search_results:
+        # Берем лучший результат
+        best_result = search_results[0]
+        response_parts = []
+        # Используем HTML для лучшего форматирования ссылок и выделения
+        response_parts.append(
+            f"<blockquote>{best_result['text']}</blockquote>")  # Цитируем текст
+
+        response_text = "\n".join(response_parts)
+
+        # --- Добавляем кнопки Оценки ---
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "👍 Нравится", callback_data=f"rate_up_{best_result.get('id', 'no_id')}_{request_interaction_id}"),
+                InlineKeyboardButton(
+                    "👎 Не нравится", callback_data=f"rate_down_{best_result.get('id', 'no_id')}_{request_interaction_id}"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        response_interaction_id = database.log_interaction(
+            user_telegram_id=user.id,
+            is_from_user=False,
+            message_text=response_text,  # Записываем уже сформированный текст
+            request_interaction_id=request_interaction_id,
+            matched_kb_id=best_result.get('id'),
+            similarity_score=best_result.get('similarity')
+        )
+        
+        # Логируем ответ в канал
+        log_answer_message = (
+            f"📤 <b>Ответ бота</b>\n"
+            f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+            f"Вопрос: <i>{html.escape(user_query)}</i>\n"
+            f"Найденный фрагмент ID: {best_result.get('id', 'unknown')}\n"
+            f"Релевантность: {best_result.get('similarity', 0):.2f}\n"
+            f"Ответ: <i>{html.escape(response_text)}</i>"
+        )
+        await send_to_log_channel(context, log_answer_message, parse_mode="HTML")
 
     # --- 1. Классификация ---
     query_category = "Другое"
@@ -194,6 +302,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 final_response_text = "..."
             else:
                 final_response_text = "Спасибо за ваше сообщение!"
+        response_text = "К сожалению, я не смог найти точный ответ в базе знаний. Попробуйте переформулировать ваш вопрос."
+        # --- Кнопка связи с оператором ---
+        keyboard = [
+            # Замените на реальный контакт
+            [InlineKeyboardButton(
+                "❓ Задать вопрос оператору", url="https://t.me/YOUR_SUPPORT_CONTACT")]
+        ]
+        # Или можно сделать callback_data="ask_operator" и обработать его
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        response_interaction_id = database.log_interaction(
+            user_telegram_id=user.id,
+            is_from_user=False,
+            message_text=response_text,
+            request_interaction_id=request_interaction_id
+        )
+        
+        # Логируем отсутствие ответа в канал
+        log_no_answer_message = (
+            f"🔍 <b>Ответ не найден</b>\n"
+            f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+            f"Вопрос: <i>{html.escape(user_query)}</i>\n"
+            f"Ответ: <i>{html.escape(response_text)}</i>"
+        )
+        await send_to_log_channel(context, log_no_answer_message, parse_mode="HTML")
 
     # --- 4. Логирование ОТВЕТА бота ---
     # ... (код без изменений, final_response_text теперь может быть перефразированным) ...
@@ -231,12 +364,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     logger.info(
         f"Получен callback от {user.id} ({user.username}): {callback_data}")
 
-    # Парсим callback_data (пример: "rate_up_faq_1")
+    # Парсим callback_data (пример: "rate_up_faq_1_123")
     parts = callback_data.split('_')
     action = parts[0]
     rate_type = parts[1]
-    # ID теперь относится к interaction_id ответа бота
-    interaction_to_rate_id = int(parts[3])  # Преобразуем в int
+    item_id = parts[2] if len(parts) > 2 else "no_id"  # ID фрагмента базы знаний
+    interaction_to_rate_id = int(parts[3]) if len(parts) > 3 else 0  # ID взаимодействия
 
     if action == "rate" and interaction_to_rate_id:
         rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
@@ -247,6 +380,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 user_telegram_id=user.id,
                 rating_value=rating
             )
+            
+            # Логируем оценку в канал
+            rating_text = "👍 Положительная" if rating == 1 else "👎 Отрицательная"
+            log_rating_message = (
+                f"⭐ <b>Оценка получена</b>\n"
+                f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+                f"Оценка: {rating_text}\n"
+                f"ID взаимодействия: {interaction_to_rate_id}\n"
+                f"ID фрагмента: {item_id}"
+            )
+            await send_to_log_channel(context, log_rating_message, parse_mode="HTML")
+            
             if success:
                 # Редактируем сообщение (убираем кнопки или добавляем текст)
                 await query.edit_message_text(
@@ -256,6 +401,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
             else:
                 await query.answer("Не удалось сохранить оценку.", show_alert=True)
+                
+                # Логируем ошибку оценки
+                log_rating_error = (
+                    f"❌ <b>Ошибка сохранения оценки</b>\n"
+                    f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+                    f"ID взаимодействия: {interaction_to_rate_id}"
+                )
+                await send_to_log_channel(context, log_rating_error, parse_mode="HTML")
         else:
             logger.warning(f"Неверный тип оценки: {rate_type}")
 
@@ -286,17 +439,16 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         timestamp_str = record['timestamp'].split(
             '.')[0]  # Убираем миллисекунды для краткости
         # Экранируем HTML-символы в тексте сообщения перед добавлением префикса
-        safe_message = telegram.helpers.escape_markdown(
-            record['message_text'], version=2)  # Или escape_html
-        # Используем Markdown V2 для совместимости с escape_markdown
-        response_text += f"`{timestamp_str}`\n{prefix} {safe_message}\n\n"
+        safe_message = html.escape(record['message_text'])
+        # Используем HTML форматирование
+        response_text += f"<code>{timestamp_str}</code>\n{prefix} {safe_message}\n\n"
         # Лимит Telegram на длину сообщения - около 4096 символов.
         if len(response_text) > 3800:  # Оставляем запас
-            await update.message.reply_markdown_v2(response_text)
+            await update.message.reply_html(response_text)
             response_text = ""  # Начинаем новое сообщение
 
     if response_text:  # Отправляем остаток, если есть
-        await update.message.reply_markdown_v2(response_text)
+        await update.message.reply_html(response_text)
 
 
 # --- Основная функция запуска ---
@@ -307,6 +459,9 @@ def main() -> None:
         logger.critical(
             "TELEGRAM_BOT_TOKEN не установлен! Бот не может быть запущен.")
         return
+        
+    if not LOG_CHANNEL_ID:
+        logger.warning("LOG_CHANNEL_ID не установлен! Логирование в канал отключено.")
 
     logger.info("Инициализация базы данных...")
     database.init_db()  # Вызываем инициализацию

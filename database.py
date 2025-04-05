@@ -2,6 +2,9 @@ import sqlite3
 import logging
 import os
 from typing import List, Dict, Any, Optional, Tuple
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Конфигурация ---
 DATABASE_FILE = os.environ.get('DATABASE_FILE')
