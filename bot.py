@@ -1,16 +1,22 @@
-import database
 import logging
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 )
+import telegram.helpers
 
 # Импортируем функции из нашего AI модуля
 import ai_pipeline
+import database
 
 # --- Конфигурация Бота ---
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")
+USE_LLM_GENERATION = os.environ.get(
+    'USE_LLM_GENERATION', 'True').lower() == 'true'
+# Можно добавить флаг для включения/отключения классификации
+USE_LLM_CLASSIFICATION = os.environ.get(
+    'USE_LLM_CLASSIFICATION', 'True').lower() == 'true'
 
 # --- Настройка Логирования (делаем это здесь, чтобы было доступно везде) ---
 log_level_str = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -60,87 +66,145 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     logger.info(
         f"Получен запрос от {user.id} ({user.username}): '{user_query}'")
 
+    query_category = "Другое"  # Категория по умолчанию
+    retrieval_ok, generation_ok = ai_pipeline.get_ai_status()
+
+    if USE_LLM_CLASSIFICATION and generation_ok:
+        # Отправляем индикатор печати, т.к. классификация может занять время
+        await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
+        query_category = ai_pipeline.classify_query_type_with_llm(user_query)
+    elif not generation_ok:
+        logger.warning(
+            "Классификация LLM отключена, т.к. генеративная модель не инициализирована.")
+        # Если генерации нет, все запросы пойдут по пути поиска в БЗ или "не найдено"
+        query_category = "Общие вопросы"  # Предполагаем, что это вопрос к БЗ
+
+    # --- 2. Логируем ЗАПРОС пользователя С КАТЕГОРИЕЙ ---
     request_interaction_id = database.log_interaction(
         user_telegram_id=user.id,
         is_from_user=True,
-        message_text=user_query
+        message_text=user_query,
+        query_category=query_category  # Записываем категорию
     )
 
-    if not ai_pipeline.get_ai_status():
-        logger.error("AI Core не инициализирован. Ответ невозможен.")
-        database.log_interaction(
-            user_telegram_id=user.id,
-            is_from_user=False,
-            message_text=error_text,
-            request_interaction_id=request_interaction_id  # Связываем с запросом
-        )
-        await update.message.reply_text("Извините, сервис временно недоступен. Попробуйте позже.")
-        return
+    # --- 3. Выбираем стратегию ответа ---
+    final_response_text = ""
+    response_interaction_id = None
+    kb_id_for_log = None
+    similarity_for_log = None
+    reply_markup = None
 
-    # --- Сюда можно добавить предобработку: исправление опечаток ---
-    # corrected_query = ai_pipeline.correct_spelling(user_query)
-    # search_results = ai_pipeline.find_relevant_knowledge(corrected_query)
-    search_results = ai_pipeline.find_relevant_knowledge(user_query)
+    # Показываем индикатор печати для основной обработки
+    await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
 
-    # --- Формируем ответ ---
-    if search_results:
-        # Берем лучший результат
-        best_result = search_results[0]
-        response_parts = []
-        # Используем HTML для лучшего форматирования ссылок и выделения
-        response_parts.append(
-            f"<blockquote>{best_result['text']}</blockquote>")  # Цитируем текст
+    # --- Стратегия А: Поиск в Базе Знаний ---
+    if query_category in ai_pipeline.SEARCH_KB_CATEGORIES:
+        logger.info(f"Категория '{query_category}' требует поиска в БЗ.")
+        if not retrieval_ok:
+            logger.error(
+                "Retrieval Core не инициализирован. Ответ по БЗ невозможен.")
+            final_response_text = "Извините, сервис временно недоступен (ошибка поиска). Попробуйте позже."
+        else:
+            context_list = ai_pipeline.retrieve_context(user_query)
 
-        response_text = "\n".join(response_parts)
+            if context_list:
+                best_context = context_list[0]
+                kb_id_for_log = best_context.get('id')
+                similarity_for_log = best_context.get('similarity')
 
-        # --- Добавляем кнопки Оценки ---
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "👍 Нравится", callback_data=f"rate_up_{best_result.get('id', 'no_id')}"),
-                InlineKeyboardButton(
-                    "👎 Не нравится", callback_data=f"rate_down_{best_result.get('id', 'no_id')}"),
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+                # Попытка генерации RAG ответа
+                generated_answer = None
+                if USE_LLM_GENERATION and generation_ok:
+                    generated_answer = ai_pipeline.generate_answer_with_llm(
+                        user_query, context_list)
 
-        response_interaction_id = database.log_interaction(
-            user_telegram_id=user.id,
-            is_from_user=False,
-            message_text=response_text,  # Записываем уже сформированный текст
-            request_interaction_id=request_interaction_id,
-            matched_kb_id=best_result.get('id'),
-            similarity_score=best_result.get('similarity')
-        )
+                if generated_answer:
+                    final_response_text = generated_answer
+                else:
+                    # Fallback на ответ из БЗ
+                    logger.info(
+                        "Ответ сформирован на основе найденного контекста (Fallback).")
+                    response_parts = [f"Нашел похожий вопрос (схожесть: {best_context['similarity']:.2f}):",
+                                      "<b>Ответ из базы знаний:</b>",
+                                      f"<blockquote>{telegram.helpers.escape_html(best_context['answer'])}</blockquote>",
+                                      f"<b>Источник:</b> {best_context.get('source', 'База знаний')}"]
+                    final_response_text = "\n".join(response_parts)
+            else:
+                # Контекст не найден, но категория предполагала поиск
+                logger.info(
+                    "Релевантный контекст не найден для категории, требующей поиска.")
+                # Опция 1: Просто сказать "не найдено"
+                # final_response_text = "К сожалению, я не смог найти ответ на ваш вопрос в базе знаний. Попробуйте переформулировать."
+                # Опция 2: Попробовать сгенерировать ответ LLM "из головы" (если она есть)
+                if USE_LLM_GENERATION and generation_ok:
+                    logger.info(
+                        "Контекст не найден, пытаемся сгенерировать 'живой' ответ...")
+                    # Используем generate_live_response, но с другой инструкцией
+                    # TODO: Возможно, нужен отдельный промпт для этого случая
+                    final_response_text = ai_pipeline.generate_live_response_with_llm(
+                        user_query, "Другое")
+                    if not final_response_text:  # Если и тут ошибка
+                        final_response_text = "К сожалению, не могу найти информацию по вашему запросу и возникла ошибка при генерации ответа."
+                    else:
+                        final_response_text += "\n\n_(Ответ сгенерирован без использования базы знаний)_"
+                else:
+                    final_response_text = "К сожалению, я не смог найти ответ на ваш вопрос в базе знаний. Попробуйте переформулировать."
 
-        await update.message.reply_html(response_text, reply_markup=reply_markup)
-        log_data = {"query": user_query, "result_id": best_result.get(
-            'id'), "similarity": best_result['similarity']}
-
+    # --- Стратегия Б: "Живое" общение ---
     else:
-        response_text = "К сожалению, я не смог найти точный ответ в базе знаний. Попробуйте переформулировать ваш вопрос."
-        # --- Кнопка связи с оператором ---
-        keyboard = [
-            # Замените на реальный контакт
-            [InlineKeyboardButton(
-                "❓ Задать вопрос оператору", url="https://t.me/YOUR_SUPPORT_CONTACT")]
-        ]
-        # Или можно сделать callback_data="ask_operator" и обработать его
+        logger.info(f"Категория '{query_category}' требует 'живого' ответа.")
+        if USE_LLM_GENERATION and generation_ok:
+            generated_live_answer = ai_pipeline.generate_live_response_with_llm(
+                user_query, query_category)
+            if generated_live_answer:
+                final_response_text = generated_live_answer
+            else:
+                final_response_text = "Спасибо за ваше сообщение. Возникла ошибка при обработке."
+        else:
+            # Fallback, если LLM недоступна для живого ответа
+            logger.warning("LLM недоступна для генерации 'живого' ответа.")
+            if query_category == "Жалобы":
+                final_response_text = "Приносим извинения за возможные неудобства. Ваша жалоба будет передана специалистам. Для срочных вопросов, пожалуйста, свяжитесь с поддержкой."
+            elif query_category == "Обратная связь":
+                final_response_text = "Спасибо за ваше мнение! Мы ценим вашу обратную связь."
+            else:  # Приветствие, Прощание, Другое
+                final_response_text = "Спасибо за ваше сообщение!"
+
+    # --- 4. Логирование ОТВЕТА бота ---
+    response_interaction_id = database.log_interaction(
+        user_telegram_id=user.id,
+        is_from_user=False,
+        message_text=final_response_text,
+        query_category=None,  # Категория для ответа не нужна
+        request_interaction_id=request_interaction_id,
+        matched_kb_id=kb_id_for_log,
+        similarity_score=similarity_for_log
+    )
+
+    # --- 5. Формирование кнопок и отправка ---
+    if response_interaction_id and kb_id_for_log:  # Оценка только для ответов по БЗ
+        keyboard = [[
+            InlineKeyboardButton(
+                "👍", callback_data=f"rate_up_{response_interaction_id}"),
+            InlineKeyboardButton(
+                "👎", callback_data=f"rate_down_{response_interaction_id}"),
+        ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
+    elif query_category == "Жалобы" or (query_category in ai_pipeline.SEARCH_KB_CATEGORIES and not context_list):
+        # Предлагаем оператора для жалоб или если ничего не нашли в БЗ
+        keyboard = [[InlineKeyboardButton(
+            "❓ Задать вопрос оператору", url="https://t.me/YOUR_SUPPORT_CONTACT")]]  # Замените
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    # В остальных случаях кнопок нет (reply_markup = None)
 
-        response_interaction_id = database.log_interaction(
-            user_telegram_id=user.id,
-            is_from_user=False,
-            message_text=response_text,
-            request_interaction_id=request_interaction_id
-        )
-
-        await update.message.reply_text(response_text, reply_markup=reply_markup)
-        log_data = {"query": user_query, "result_id": None, "similarity": 0.0}
-
-    # --- Логирование Взаимодействия (замените на вашу реальную БД/файл) ---
-    logger.info(f"Interaction log for user {user.id}: {log_data}")
-    # save_interaction_to_db(user.id, log_data) # Ваша функция сохранения
+    try:
+        await update.message.reply_html(final_response_text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(
+            f"Ошибка отправки сообщения пользователю {user.id}: {e}", exc_info=True)
+        fallback_text = final_response_text[:constants.MessageLimit.MAX_TEXT_LENGTH - 20] + "... (ответ урезан)" if len(
+            final_response_text) > constants.MessageLimit.MAX_TEXT_LENGTH else "Произошла ошибка при отправке ответа."
+        await update.message.reply_html(fallback_text)
 
 
 # --- Обработчик Нажатий на Кнопки (Callback) ---

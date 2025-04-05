@@ -39,6 +39,7 @@ def init_db():
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     is_from_user INTEGER NOT NULL, -- 1 for True, 0 for False
                     message_text TEXT NOT NULL,
+                    query_category TEXT,
                     request_interaction_id INTEGER, -- FK to interactions(interaction_id)
                     matched_kb_id TEXT,
                     similarity_score REAL,
@@ -97,6 +98,7 @@ def log_interaction(
     user_telegram_id: int,
     is_from_user: bool,
     message_text: str,
+    query_category: Optional[str] = None,
     request_interaction_id: Optional[int] = None,
     matched_kb_id: Optional[str] = None,
     similarity_score: Optional[float] = None,
@@ -107,6 +109,8 @@ def log_interaction(
 
     Возвращает ID созданной записи взаимодействия или None в случае ошибки.
     """
+
+    effective_category = query_category if is_from_user else None
     sql = """
         INSERT INTO interactions
         (user_telegram_id, is_from_user, message_text, request_interaction_id, matched_kb_id, similarity_score, assigned_theme_id)
@@ -116,6 +120,7 @@ def log_interaction(
         user_telegram_id,
         1 if is_from_user else 0,
         message_text,
+        effective_category,
         request_interaction_id,
         matched_kb_id,
         similarity_score,
@@ -175,6 +180,7 @@ def get_user_history(user_telegram_id: int, limit: int = 20) -> List[Dict[str, A
             timestamp,
             is_from_user, -- 1 или 0
             message_text,
+            query_category,
             request_interaction_id,
             matched_kb_id,
             similarity_score
