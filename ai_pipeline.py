@@ -8,11 +8,13 @@ import pandas as pd
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from typing import List, Dict, Any, Optional, Tuple
 
+import pdf_processor
+
 # --- Конфигурация AI ---
 RETRIEVAL_MODEL_NAME = os.environ.get(
     'EMBEDDING_MODEL', 'paraphrase-multilingual-mpnet-base-v2')
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', 0.75))
-TOP_K = int(os.environ.get('TOP_K_RESULTS', 3))
+TOP_K = int(os.environ.get('TOP_K_RESULTS', 1))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 XLS_PATH = 'data/Статьи.xls'
 CPU_DTYPE = torch.float32
@@ -27,6 +29,11 @@ MAX_NEW_TOKENS_LIVE = int(os.environ.get(
 
 
 logger = logging.getLogger(__name__)
+
+PDF_KNOWLEDGE_FOLDER = os.environ.get(
+    'PDF_KNOWLEDGE_FOLDER', 'knowledge_pdfs')
+PDF_CHUNK_SIZE = int(os.environ.get('PDF_CHUNK_SIZE', 1000))
+PDF_CHUNK_OVERLAP = int(os.environ.get('PDF_CHUNK_OVERLAP', 100))
 
 # --- Категории Запросов ---
 QUERY_CATEGORIES = [
@@ -67,6 +74,7 @@ def _load_kb_from_xls(filepath):
                     "id": f"xls_{index}",
                     "question": str(question).strip(),
                     "answer": str(answer).strip(),
+                    "source": "База Q&A"
                 })
 
         logger.info(
@@ -123,12 +131,51 @@ def initialize_ai_core():
         except Exception as e:
             logger.error(f"Не удалось загрузить Retrieval модель: {e}")
             return False
-        loaded_kb = _load_kb_from_xls(XLS_PATH)
-        if loaded_kb is None:
+            logger.info(
+                f"Загрузка и чанкинг PDF из папки: {PDF_KNOWLEDGE_FOLDER}...")
+        raw_excel_data = _load_kb_from_xls(XLS_PATH)
+        chunked_kb_data = pdf_processor.load_and_chunk_pdfs(
+            folder_path=PDF_KNOWLEDGE_FOLDER,
+            chunk_size=PDF_CHUNK_SIZE,
+            chunk_overlap=PDF_CHUNK_OVERLAP
+        )
+        if not chunked_kb_data:
+            logger.error(
+                f"Не удалось загрузить данные из PDF в '{PDF_KNOWLEDGE_FOLDER}'. База знаний будет пуста.")
+
+        if raw_excel_data is None:
             return False
-        _kb_data_indexed = loaded_kb
+
+        unified_kb_data = []
+        texts_to_embed = []
+
+        # Обработка CSV данных
+        for item in raw_excel_data:
+            unified_kb_data.append({
+                "id": item["id"],
+                "text_to_index": item["question"],  # Индексируем ВОПРОС
+                "source": item["source"],
+                "data_type": "csv",               # Маркер типа
+                "content": item["answer"],        # Контент - это ОТВЕТ
+            })
+            texts_to_embed.append(item["question"])
+
+        # Обработка PDF данных
+        for item in chunked_kb_data:
+            unified_kb_data.append({
+                "id": item["id"],
+                "text_to_index": item["text"],     # Индексируем ТЕКСТ ЧАНКА
+                "source": item["source"],
+                "data_type": "pdf",                # Маркер типа
+                "answer": item["text"],         # Контент - это ТЕКСТ ЧАНКА
+            })
+            texts_to_embed.append(item["text"])
+
+        _kb_data_indexed = unified_kb_data
+
         if _kb_data_indexed:
-            texts_to_embed = [item['question'] for item in _kb_data_indexed]
+            texts_to_embed = [
+                item['question'] if 'question' in item else item['text_to_index'] for item in _kb_data_indexed]
             try:
                 kb_embeddings_tensor = _retrieval_model.encode(
                     texts_to_embed, convert_to_tensor=True, normalize_embeddings=True, show_progress_bar=True, device=DEVICE)
@@ -241,69 +288,51 @@ def classify_query_type_with_llm(user_query: str) -> Optional[str]:
         return "Другое"  # Возвращаем 'Другое' при ошибке
 
 
-def find_relevant_knowledge(query_text: str) -> list[dict]:
+def retrieve_context(query_text: str) -> Optional[Dict[str, Any]]:
     """
-    Ищет релевантные чанки в проиндексированной БЗ по текстовому запросу.
-
-    Args:
-        query_text: Текст запроса пользователя.
-
-    Returns:
-        Список словарей, где каждый словарь представляет найденный релевантный
-        чанк и содержит ключи 'text', 'source', 'link', 'similarity'.
-        Список отсортирован по убыванию схожести.
-        Возвращает пустой список, если ничего не найдено или произошла ошибка.
+    Ищет наиболее релевантный элемент (CSV вопрос или PDF чанк) в БЗ.
+    Возвращает ТОЛЬКО ОДИН лучший результат в виде словаря или None.
     """
-    global _embedding_model, _kb_embeddings, _kb_data_indexed
+    global _retrieval_model, _kb_embeddings, _kb_data_indexed
+    # Проверки инициализации
+    if not _is_initialized_retrieval or _retrieval_model is None or _kb_embeddings is None or _kb_embeddings.shape[0] == 0:
+        logger.warning("Retrieval не инициализирован или БЗ пуста.")
+        return None
 
-    if not _is_initialized or _embedding_model is None or _kb_embeddings is None or _kb_embeddings.shape[0] == 0:
-        logger.warning(
-            "AI Core не инициализирован или БЗ пуста. Поиск невозможен.")
-        return []
-
-    logger.debug(f"Поиск по запросу: {query_text}")
+    logger.debug(
+        f"Поиск лучшего совпадения (CSV/PDF) по запросу: {query_text}")
     try:
-        # Получаем эмбеддинг для запроса
-        query_embedding_tensor = _embedding_model.encode(
-            [query_text],
-            convert_to_tensor=True,
-            normalize_embeddings=True,
-            device=DEVICE
-        )
+        # Получение эмбеддинга запроса
+        query_embedding_tensor = _retrieval_model.encode(
+            [query_text], convert_to_tensor=True, normalize_embeddings=True, device=DEVICE)
         query_embedding = query_embedding_tensor.cpu().numpy()
 
-        # Вычисляем косинусное сходство
+        # Поиск схожести со ВСЕМИ элементами БЗ
         similarities = cosine_similarity(query_embedding, _kb_embeddings)[0]
 
-        # Находим индексы и значения схожести выше порога
-        relevant_indices = np.where(similarities >= SIMILARITY_THRESHOLD)[0]
+        # Находим индекс САМОГО похожего элемента
+        best_match_idx = np.argmax(similarities)
+        best_similarity = similarities[best_match_idx]
 
-        # Создаем список результатов (индекс, схожесть)
-        results_with_scores = [
-            (idx, similarities[idx]) for idx in relevant_indices
-        ]
+        if best_similarity >= SIMILARITY_THRESHOLD:
+            # Получаем полный унифицированный элемент из _kb_data_indexed
+            # Копируем, чтобы не изменить случайно
+            best_match_item = _kb_data_indexed[best_match_idx].copy()
+            best_match_item["similarity"] = float(
+                best_similarity)  # Добавляем схожесть
 
-        # Сортируем по схожести в убывающем порядке
-        results_with_scores.sort(key=lambda item: item[1], reverse=True)
-
-        # Формируем финальный список результатов (берем TOP_K)
-        final_results = []
-        for idx, similarity in results_with_scores[:TOP_K]:
-            result_item = _kb_data_indexed[idx]
-            final_results.append({
-                "id": result_item.get('id'),
-                "text": result_item['answer'],
-                "similarity": float(similarity)
-            })
-
-        logger.info(
-            f"Найдено {len(final_results)} релевантных результатов для запроса '{query_text}'.")
-        return final_results
+            logger.info(
+                f"Найдено лучшее совпадение: ID={best_match_item['id']}, Тип={best_match_item['data_type']}, Схожесть={best_similarity:.4f}")
+            return best_match_item
+        else:
+            logger.info(
+                f"Лучшее совпадение имеет схожесть {best_similarity:.4f}, что ниже порога {SIMILARITY_THRESHOLD}. Контекст не найден.")
+            return None
 
     except Exception as e:
         logger.error(
-            f"Ошибка во время поиска по запросу '{query_text}': {e}", exc_info=True)
-        return []
+            f"Ошибка во время поиска контекста (CSV/PDF): {e}", exc_info=True)
+        return None
 
 
 def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optional[str]:
@@ -407,6 +436,63 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
         logger.error(
             f"Ошибка генерации 'живого' ответа LLM: {e}", exc_info=True)
         return "Спасибо за ваше сообщение. Возникла техническая ошибка при обработке."
+
+
+def paraphrase_text_with_llm(text_to_paraphrase: str) -> Optional[str]:
+    """
+    Перефразирует заданный текст с помощью LLM (Gemma).
+    """
+    global _generation_pipeline, _tokenizer_llm
+
+    if _generation_pipeline is None:
+        logger.warning(
+            "Generation pipeline недоступен, перефразирование невозможно.")
+        return None
+    if not text_to_paraphrase:
+        logger.warning("Получен пустой текст для перефразирования.")
+        return None
+
+    # Промпт для перефразирования
+    prompt = f"""<start_of_turn>user
+Перефразируй следующий текст, полностью сохранив его смысл, но изложив другими словами. Сделай перефразированный текст естественным и понятным для пользователя. Не добавляй никакой новой информации.
+
+ТЕКСТ ДЛЯ ПЕРЕФРАЗИРОВАНИЯ:
+{text_to_paraphrase}
+<end_of_turn>
+<start_of_turn>model
+Перефразированный текст: """  # Модель должна продолжить
+
+    logger.debug(f"Промпт для LLM (Paraphrase):\n{prompt}")
+    try:
+        logger.info(f"Перефразирование текста: '{text_to_paraphrase[:60]}...'")
+        generation_args = {
+            "max_new_tokens": MAX_NEW_TOKENS_PARAPHRASE,
+            "temperature": 0.7,  # Можно экспериментировать
+            "top_p": 0.9,
+            "do_sample": True,
+            "eos_token_id": _tokenizer_llm.eos_token_id,
+        }
+
+        results = _generation_pipeline(prompt, **generation_args)
+        generated_text_full = results[0]['generated_text']
+        paraphrased_text = generated_text_full[len(prompt):].strip()
+        if paraphrased_text.endswith("<end_of_turn>"):
+            paraphrased_text = paraphrased_text[:-len("<end_of_turn>")].strip()
+
+        # Простая проверка, не вернула ли модель пустой или слишком короткий ответ
+        if not paraphrased_text or len(paraphrased_text) < 10:
+            logger.warning(
+                f"Перефразирование вернуло слишком короткий/пустой результат: '{paraphrased_text}'. Используем оригинал.")
+            return None
+
+        logger.info(f"Текст успешно перефразирован.")
+        logger.debug(f"Оригинал: {text_to_paraphrase}")
+        logger.debug(f"Перефраз: {paraphrased_text}")
+        return paraphrased_text
+
+    except Exception as e:
+        logger.error(f"Ошибка перефразирования текста: {e}", exc_info=True)
+        return None
 
 
 def get_ai_status():
