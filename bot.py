@@ -610,9 +610,9 @@ def main() -> None:
             "TELEGRAM_BOT_TOKEN не установлен! Бот не может быть запущен.")
         return
 
-    if not LOG_CHANNEL_ID:
-        logger.warning(
-            "LOG_CHANNEL_ID не установлен! Логирование в канал отключено.")
+    # if not LOG_CHANNEL_ID:
+    #     logger.warning(
+    #         "LOG_CHANNEL_ID не установлен! Логирование в канал отключено.")
 
     logger.info("Инициализация базы данных...")
     # database.init_db()  # Вызываем инициализацию
