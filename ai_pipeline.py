@@ -22,7 +22,7 @@ CPU_DTYPE = torch.float32
 
 
 GENERATION_MODEL_NAME = os.environ.get(
-    'GENERATION_MODEL', 'mistralai/Mistral-7B-v0.1')
+    'GENERATION_MODEL', 'google/gemma-3-1b-it')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
     'MAX_NEW_TOKENS_RAG', 200))  # Для ответа по БЗ
@@ -48,6 +48,7 @@ QUERY_CATEGORIES = [
     "Приветствие/Прощание",  # Добавим для простых диалогов
     "Другое"  # Если не подходит ни одна категория
 ]
+
 # Категории, для которых нужно искать в БЗ
 SEARCH_KB_CATEGORIES = [
     "Вопросы о функционале портала",
@@ -66,7 +67,6 @@ def _load_kb_from_xls(filepath):
     try:
         df = pd.read_excel(filepath)
 
-        # Итерируемся по строкам DataFrame
         for index, row in df.iterrows():
             question = row.iloc[0]
             answer = row.iloc[1]
@@ -86,7 +86,7 @@ def _load_kb_from_xls(filepath):
     except FileNotFoundError:
         logger.error(f"Файл Базы Знаний не найден: {filepath}")
         return None
-    except pd.errors.EmptyDataError:  # Специфичная ошибка Pandas для пустых файлов
+    except pd.errors.EmptyDataError:
         logger.error(f"Ошибка при чтении CSV файла {filepath}: Файл пуст.")
         return None
     except Exception as e:
@@ -126,7 +126,6 @@ def initialize_ai_core():
     # --- 1. Retrieval ---
     if not _is_initialized_retrieval:
         logger.info(f"Инициализация Retrieval части...")
-        # ... (загрузка sentence-transformer и индексация БЗ) ...
         try:
             _retrieval_model = SentenceTransformer(
                 RETRIEVAL_MODEL_NAME, device=DEVICE)
@@ -152,25 +151,23 @@ def initialize_ai_core():
         unified_kb_data = []
         texts_to_embed = []
 
-        # Обработка CSV данных
         for item in raw_excel_data:
             unified_kb_data.append({
                 "id": item["id"],
-                "text_to_index": item["question"],  # Индексируем ВОПРОС
+                "text_to_index": item["question"],
                 "source": item["source"],
-                "data_type": "csv",               # Маркер типа
-                "content": item["answer"],        # Контент - это ОТВЕТ
+                "data_type": "csv",
+                "content": item["answer"],
             })
             texts_to_embed.append(item["question"])
 
-        # Обработка PDF данных
         for item in chunked_kb_data:
             unified_kb_data.append({
                 "id": item["id"],
-                "text_to_index": item["text"],     # Индексируем ТЕКСТ ЧАНКА
+                "text_to_index": item["text"],
                 "source": item["source"],
-                "data_type": "pdf",                # Маркер типа
-                "answer": item["text"],         # Контент - это ТЕКСТ ЧАНКА
+                "data_type": "pdf",
+                "content": item["text"],
             })
             texts_to_embed.append(item["text"])
 
@@ -194,7 +191,6 @@ def initialize_ai_core():
     else:
         logger.info("Retrieval часть уже инициализирована.")
 
-    # --- 2. Generation ---
     if not _is_initialized_generation:
         logger.info(
             f"Инициализация Generation части ({GENERATION_MODEL_NAME})...")
@@ -211,7 +207,6 @@ def initialize_ai_core():
             logger.error(
                 f"Не удалось загрузить Generation модель {GENERATION_MODEL_NAME}: {e}", exc_info=True)
             _generation_pipeline = None
-            # Помечаем как инициализированную (с ошибкой)
             _is_initialized_generation = True
             logger.warning("Generation модель не загружена!")
     else:
@@ -228,49 +223,49 @@ def classify_query_type_with_llm(user_query: str) -> Optional[str]:
 
     if _generation_pipeline is None:
         logger.warning(
-            "Generation pipeline недоступен, классификация невозможна.")
-        return "Другое"  # Возвращаем категорию по умолчанию
+            "Generation pipeline недоступен, классификация невозможна."
+        )
+        return "Другое"
 
-    # Формируем промпт для классификации
     category_list_str = "\n".join([f"- {cat}" for cat in QUERY_CATEGORIES])
-    prompt = f"""<start_of_turn>user
-Определи наиболее подходящую категорию для следующего ЗАПРОСА ПОЛЬЗОВАТЕЛЯ из списка ниже. Ответь ТОЛЬКО названием одной категории из списка.
+    prompt = f"""
+            Определи наиболее подходящую категорию для следующего 
+            ЗАПРОСА ПОЛЬЗОВАТЕЛЯ из списка ниже. Ответь ТОЛЬКО названием 
+            одной категории из списка.
 
-КАТЕГОРИИ:
-{category_list_str}
+        КАТЕГОРИИ:
+        {category_list_str}
 
-ЗАПРОС ПОЛЬЗОВАТЕЛЯ:
-{user_query}
-<end_of_turn>
-<start_of_turn>model
-Категория: """  # Модель должна продолжить после "Категория: "
+        ЗАПРОС ПОЛЬЗОВАТЕЛЯ:
+        {user_query}
+        
+        Напиши только одну категорию: """
 
     logger.debug(f"Промпт для классификации:\n{prompt}")
+
     try:
         logger.info(f"Классификация запроса: '{user_query[:50]}...'")
-        # Используем небольшое кол-во токенов для ответа
         generation_args = {
-            "max_new_tokens": 20,  # Должно хватить для названия категории
-            "temperature": 0.1,  # Низкая температура для точности
+            "max_new_tokens": 20,
+            "temperature": 0.1,
             "top_p": 0.9,
             "do_sample": True,
             "eos_token_id": _tokenizer_llm.eos_token_id,
         }
+
         results = _generation_pipeline(prompt, **generation_args)
         generated_text_full = results[0]['generated_text']
         raw_category = generated_text_full[len(prompt):].strip()
 
-        # Пост-обработка: ищем точное совпадение с нашими категориями
         best_match = None
-        highest_similarity = -1  # Используем простую проверку на вхождение
+        highest_similarity = -1
         cleaned_raw_category = raw_category.split(
-            '\n')[0].strip().lower()  # Берем первую строку и чистим
+            '\n')[0].strip().lower()
 
         for category in QUERY_CATEGORIES:
             if category.lower() == cleaned_raw_category:
                 best_match = category
-                break  # Точное совпадение найдено
-            # Если точного нет, ищем частичное
+                break
             if category.lower() in cleaned_raw_category:
                 if len(category) > highest_similarity:  # Предпочитаем более длинное совпадение
                     highest_similarity = len(category)
@@ -288,7 +283,7 @@ def classify_query_type_with_llm(user_query: str) -> Optional[str]:
     except Exception as e:
         logger.error(
             f"Ошибка классификации запроса '{user_query[:50]}...': {e}", exc_info=True)
-        return "Другое"  # Возвращаем 'Другое' при ошибке
+        return "Другое"
 
 
 def retrieve_context(query_text: str) -> Optional[Dict[str, Any]]:
@@ -297,32 +292,25 @@ def retrieve_context(query_text: str) -> Optional[Dict[str, Any]]:
     Возвращает ТОЛЬКО ОДИН лучший результат в виде словаря или None.
     """
     global _retrieval_model, _kb_embeddings, _kb_data_indexed
-    # Проверки инициализации
     if not _is_initialized_retrieval or _retrieval_model is None or _kb_embeddings is None or _kb_embeddings.shape[0] == 0:
         logger.warning("Retrieval не инициализирован или БЗ пуста.")
         return None
 
     logger.debug(
-        f"Поиск лучшего совпадения (CSV/PDF) по запросу: {query_text}")
+        f"Поиск лучшего совпадения (XLS/PDF) по запросу: {query_text}")
     try:
-        # Получение эмбеддинга запроса
         query_embedding_tensor = _retrieval_model.encode(
             [query_text], convert_to_tensor=True, normalize_embeddings=True, device=DEVICE)
         query_embedding = query_embedding_tensor.cpu().numpy()
 
-        # Поиск схожести со ВСЕМИ элементами БЗ
         similarities = cosine_similarity(query_embedding, _kb_embeddings)[0]
 
-        # Находим индекс САМОГО похожего элемента
         best_match_idx = np.argmax(similarities)
         best_similarity = similarities[best_match_idx]
 
         if best_similarity >= SIMILARITY_THRESHOLD:
-            # Получаем полный унифицированный элемент из _kb_data_indexed
-            # Копируем, чтобы не изменить случайно
             best_match_item = _kb_data_indexed[best_match_idx].copy()
-            best_match_item["similarity"] = float(
-                best_similarity)  # Добавляем схожесть
+            best_match_item["similarity"] = float(best_similarity)
 
             logger.info(
                 f"Найдено лучшее совпадение: ID={best_match_item['id']}, Тип={best_match_item['data_type']}, Схожесть={best_similarity:.4f}")
@@ -334,16 +322,14 @@ def retrieve_context(query_text: str) -> Optional[Dict[str, Any]]:
 
     except Exception as e:
         logger.error(
-            f"Ошибка во время поиска контекста (CSV/PDF): {e}", exc_info=True)
+            f"Ошибка во время поиска контекста (XLS/PDF): {e}", exc_info=True)
         return None
 
 
 def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optional[str]:
-    # ... (код без изменений, использует MAX_NEW_TOKENS_RAG) ...
     global _generation_pipeline, _tokenizer_llm
     if _generation_pipeline is None or not context_list:
         return None
-    # ... (формирование промпта Gemma RAG) ...
     context_str = ""
     sources = set()
     for i, ctx in enumerate(context_list):
@@ -351,35 +337,35 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
         if ctx.get('source'):
             sources.add(ctx['source'])
     source_str = ", ".join(sources) if sources else "База Знаний"
-    prompt = f"""<start_of_turn>user
-Ты - ИИ-ассистент Портала Поставщиков Москвы. Ответь на ВОПРОС ПОЛЬЗОВАТЕЛЯ кратко и четко, основываясь ИСКЛЮЧИТЕЛЬНО на предоставленном КОНТЕКСТЕ. Не добавляй никакой информации, которой нет в КОНТЕКСТЕ. В конце ответа укажи ИСТОЧНИК(И).
+    prompt = f"""
+            Ты - ИИ-ассистент Портала Поставщиков Москвы. 
+            Ответь на ВОПРОС ПОЛЬЗОВАТЕЛЯ кратко и четко, 
+            основываясь ИСКЛЮЧИТЕЛЬНО на предоставленном 
+            КОНТЕКСТЕ. Не добавляй никакой информации, которой нет
+            в КОНТЕКСТЕ. В конце ответа укажи ИСТОЧНИК(И).
 
-КОНТЕКСТ:
-{context_str}
-ИСТОЧНИК(И): {source_str}
+            КОНТЕКСТ:
+            {context_str}
+            ИСТОЧНИК(И): {source_str}
 
-ВОПРОС ПОЛЬЗОВАТЕЛЯ:
-{user_query}
-<end_of_turn>
-<start_of_turn>model
-"""
-    logger.debug(f"Промпт для LLM (Gemma RAG):\n{prompt}")
+            ВОПРОС ПОЛЬЗОВАТЕЛЯ:
+            {user_query}
+            Твой ответ: """
+    logger.debug(f"Промпт для LLM (Mistral RAG):\n{prompt}")
     try:
-        logger.info("Генерация RAG ответа с помощью LLM (Gemma)...")
+        logger.info("Генерация RAG ответа с помощью LLM (Mistral)...")
         generation_args = {"max_new_tokens": MAX_NEW_TOKENS_RAG, "temperature": 0.7, "top_p": 0.9,
                            "top_k": 50, "do_sample": True, "eos_token_id": _tokenizer_llm.eos_token_id}
         results = _generation_pipeline(prompt, **generation_args)
         generated_text_full = results[0]['generated_text']
         answer_only = generated_text_full[len(prompt):].strip()
-        if answer_only.endswith("<end_of_turn>"):
-            answer_only = answer_only[:-len("<end_of_turn>")].strip()
+        if answer_only.endswith("Твой ответ: "):
+            answer_only = answer_only[:-len("Твой ответ: ")].strip()
         logger.info(f"Сгенерирован RAG ответ LLM (Gemma): {answer_only}")
         return answer_only
     except Exception as e:
-        logger.error(f"Ошибка генерации RAG ответа LLM (Gemma): {e}")
+        logger.error(f"Ошибка генерации RAG ответа LLM (Mistral): {e}")
         return None
-
-# --- НОВАЯ Функция для "Живого" ответа ---
 
 
 def generate_live_response_with_llm(user_query: str, query_category: str) -> Optional[str]:
@@ -391,10 +377,8 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
     if _generation_pipeline is None:
         logger.warning(
             "Generation pipeline недоступен, генерация 'живого' ответа невозможна.")
-        # Возвращаем заглушку или стандартный ответ
         return "Спасибо за ваше сообщение. Я передам его специалистам."
 
-    # Формируем промпт для "живого" ответа, учитывая категорию
     system_prompt = "Ты - вежливый и эмпатичный ИИ-ассистент Портала Поставщиков Москвы."
     instruction = ""
     if query_category == "Жалобы":
@@ -403,25 +387,25 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
         instruction = "Пользователь оставил обратную связь (предложение или благодарность). Поблагодари пользователя за его мнение и сообщи, что оно будет учтено."
     elif query_category == "Приветствие/Прощание":
         instruction = "Пользователь поздоровался или попрощался. Ответь вежливо и кратко."
-    else:  # Категория "Другое"
+    else:
         instruction = "Пользователь задал вопрос или оставил сообщение, не относящееся к стандартным категориям. Ответь вежливо, но сообщи, что ты можешь помочь только с вопросами по Порталу Поставщиков или Базе Знаний. Если вопрос важный, предложи обратиться к оператору."
 
     prompt = f"""<start_of_turn>user
-{system_prompt} {instruction}
+        {system_prompt} {instruction}
 
-СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
-{user_query}
-<end_of_turn>
-<start_of_turn>model
-"""
+        СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
+        {user_query}
+        <end_of_turn>
+        <start_of_turn>model
+        """
 
     logger.debug(f"Промпт для LLM (Live Response):\n{prompt}")
     try:
         logger.info(
             f"Генерация 'живого' ответа для категории '{query_category}'...")
         generation_args = {
-            "max_new_tokens": MAX_NEW_TOKENS_LIVE,  # Короткий ответ
-            "temperature": 0.75,  # Чуть больше креативности
+            "max_new_tokens": MAX_NEW_TOKENS_LIVE,
+            "temperature": 0.75,
             "top_p": 0.9,
             "do_sample": True,
             "eos_token_id": _tokenizer_llm.eos_token_id,
@@ -455,22 +439,21 @@ def paraphrase_text_with_llm(text_to_paraphrase: str) -> Optional[str]:
         logger.warning("Получен пустой текст для перефразирования.")
         return None
 
-    # Промпт для перефразирования
     prompt = f"""<start_of_turn>user
-Перефразируй следующий текст, полностью сохранив его смысл, но изложив другими словами. Сделай перефразированный текст естественным и понятным для пользователя. Не добавляй никакой новой информации.
+            Перефразируй следующий текст, полностью сохранив его смысл, но изложив другими словами. Сделай перефразированный текст естественным и понятным для пользователя. Не добавляй никакой новой информации.
 
-ТЕКСТ ДЛЯ ПЕРЕФРАЗИРОВАНИЯ:
-{text_to_paraphrase}
-<end_of_turn>
-<start_of_turn>model
-Перефразированный текст: """  # Модель должна продолжить
+            ТЕКСТ ДЛЯ ПЕРЕФРАЗИРОВАНИЯ:
+            {text_to_paraphrase}
+            <end_of_turn>
+            <start_of_turn>model
+            Перефразированный текст: """
 
     logger.debug(f"Промпт для LLM (Paraphrase):\n{prompt}")
     try:
         logger.info(f"Перефразирование текста: '{text_to_paraphrase[:60]}...'")
         generation_args = {
             "max_new_tokens": MAX_NEW_TOKENS_PARAPHRASE,
-            "temperature": 0.7,  # Можно экспериментировать
+            "temperature": 0.7,
             "top_p": 0.9,
             "do_sample": True,
             "eos_token_id": _tokenizer_llm.eos_token_id,
@@ -482,7 +465,6 @@ def paraphrase_text_with_llm(text_to_paraphrase: str) -> Optional[str]:
         if paraphrased_text.endswith("<end_of_turn>"):
             paraphrased_text = paraphrased_text[:-len("<end_of_turn>")].strip()
 
-        # Простая проверка, не вернула ли модель пустой или слишком короткий ответ
         if not paraphrased_text or len(paraphrased_text) < 10:
             logger.warning(
                 f"Перефразирование вернуло слишком короткий/пустой результат: '{paraphrased_text}'. Используем оригинал.")
@@ -499,7 +481,6 @@ def paraphrase_text_with_llm(text_to_paraphrase: str) -> Optional[str]:
 
 
 def get_ai_status():
-    # Возвращаем статус обеих систем
     return _is_initialized_retrieval, _is_initialized_generation
 
 
@@ -525,7 +506,3 @@ def cluster_queries(embeddings: List[np.ndarray], num_clusters: int = 10):
     centroids = kmeans.cluster_centers_
     logger.info(f"Запросы кластеризованы на {num_clusters} тем.")
     return labels, centroids
-
-# --- Дополнительные функции AI (можно добавить позже) ---
-# def correct_spelling(text: str) -> str: ...
-# def classify_intent(text: str) -> str: ...

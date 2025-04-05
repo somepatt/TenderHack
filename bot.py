@@ -4,27 +4,23 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constan
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 )
-# import telegram.helpers
 import html
 from dotenv import load_dotenv
 
 
-# Импортируем функции из нашего AI модуля
 import ai_pipeline
-# import database
 
 load_dotenv()
+
 # --- Конфигурация Бота ---
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")
 USE_LLM_GENERATION = os.environ.get(
     'USE_LLM_GENERATION', 'True').lower() == 'true'
-# Можно добавить флаг для включения/отключения классификации
 USE_LLM_CLASSIFICATION = os.environ.get(
     'USE_LLM_CLASSIFICATION', 'True').lower() == 'true'
 PARAPHRASE_CSV_ANSWERS = os.environ.get(
     'PARAPHRASE_CSV_ANSWERS', 'True').lower() == 'true'
-# ID канала для логирования событий
-LOG_CHANNEL_ID = os.environ.get("LOG_CHANNEL_ID")
+# LOG_CHANNEL_ID = os.environ.get("LOG_CHANNEL_ID")
 
 # --- Настройка Логирования (делаем это здесь, чтобы было доступно везде) ---
 log_level_str = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -32,32 +28,29 @@ log_level = getattr(logging, log_level_str, logging.INFO)
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=log_level
 )
-# Устанавливаем уровень логгера для библиотеки telegram
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-# --- Функция для отправки логов в канал ---
+# # --- Функция для отправки логов в канал ---
+# async def send_to_log_channel(context: ContextTypes.DEFAULT_TYPE, message: str, parse_mode=None) -> None:
+#     """Отправляет сообщение в канал логирования."""
+#     if not LOG_CHANNEL_ID:
+#         logger.warning(
+#             "LOG_CHANNEL_ID не установлен. Логирование в канал отключено.")
+#         return
 
-async def send_to_log_channel(context: ContextTypes.DEFAULT_TYPE, message: str, parse_mode=None) -> None:
-    """Отправляет сообщение в канал логирования."""
-    if not LOG_CHANNEL_ID:
-        logger.warning(
-            "LOG_CHANNEL_ID не установлен. Логирование в канал отключено.")
-        return
-
-    try:
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=message,
-            parse_mode=parse_mode
-        )
-    except Exception as e:
-        logger.error(f"Ошибка отправки сообщения в канал логирования: {e}")
+#     try:
+#         await context.bot.send_message(
+#             chat_id=LOG_CHANNEL_ID,
+#             text=message,
+#             parse_mode=parse_mode
+#         )
+#     except Exception as e:
+#         logger.error(f"Ошибка отправки сообщения в канал логирования: {e}")
 
 
 # --- Обработчики Команд ---
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет приветственное сообщение при команде /start."""
     user = update.effective_user
@@ -346,6 +339,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 #         await update.message.reply_html(final_response_text, reply_markup=reply_markup)
 #     except Exception as e:
 #         logger.error(f"Ошибка отправки: {e}")  # Fallback отправка
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_query = update.message.text
     user = update.effective_user
