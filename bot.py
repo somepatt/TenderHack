@@ -196,70 +196,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает нажатия на инлайн-кнопки (например, оценки)."""
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # Обязательно нужно ответить на колбэк
 
-    try:
-        callback_data = query.data
-        user = query.from_user
-        logger.info(
-            f"Получен callback от {user.id} ({user.username}): {callback_data}")
+    callback_data = query.data
+    user = query.from_user
+    logger.info(
+        f"Получен callback от {user.id} ({user.username}): {callback_data}")
 
-        parts = callback_data.split('_')
-        action = parts[0]
-        rate_type = parts[1]
-        item_id = parts[2] if len(parts) > 2 else "no_id"
-        interaction_to_rate_id = int(parts[3]) if len(
-            parts) > 3 else 0
+    # Парсим callback_data (пример: "rate_up_faq_1_123")
+    parts = callback_data.split('_')
+    action = parts[0]
+    rate_type = parts[1]
+    # ID фрагмента базы знаний
+    item_id = parts[2] if len(parts) > 2 else "no_id"
+    interaction_to_rate_id = int(parts[3]) if len(
+        parts) > 3 else 0  # ID взаимодействия
 
-        if action == "rate" and interaction_to_rate_id:
-            rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
-            if rating != 0:
-                # Записываем оценку в БД
-                success = database.log_rating(
-                    interaction_id=interaction_to_rate_id,
-                    user_telegram_id=user.id,
-                    rating_value=rating
+    if action == "rate" and interaction_to_rate_id:
+        rating = 1 if rate_type == "up" else -1 if rate_type == "down" else 0
+        if rating != 0:
+            # Записываем оценку в БД
+            success = database.log_rating(
+                interaction_id=interaction_to_rate_id,
+                user_telegram_id=user.id,
+                rating_value=rating
+            )
+
+            # Логируем оценку в канал
+            # rating_text = "👍 Положительная" if rating == 1 else "👎 Отрицательная"
+            # log_rating_message = (
+            #     f"⭐️ <b>Оценка получена</b>\n"
+            #     f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+            #     f"Оценка: {rating_text}\n"
+            #     f"ID взаимодействия: {interaction_to_rate_id}\n"
+            #     f"ID фрагмента: {item_id}"
+            # )
+            # await send_to_log_channel(context, log_rating_message, parse_mode="HTML")
+
+            if success:
+                # Редактируем сообщение (убираем кнопки или добавляем текст)
+                await query.edit_message_text(
+                    text=query.message.text_html + "\n\n<i>Спасибо за вашу оценку!</i>",
+                    parse_mode='HTML',
+                    reply_markup=None  # Убираем клавиатуру
                 )
-
-                # # Логируем оценку в канал
-                # rating_text = "👍 Положительная" if rating == 1 else "👎 Отрицательная"
-                # log_rating_message = (
-                #     f"⭐ <b>Оценка получена</b>\n"
-                #     f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
-                #     f"Оценка: {rating_text}\n"
-                #     f"ID взаимодействия: {interaction_to_rate_id}\n"
-                #     f"ID фрагмента: {item_id}"
-                # )
-                # await send_to_log_channel(context, log_rating_message, parse_mode="HTML")
-
-                if success:
-                    await query.edit_message_text(
-                        text=query.message.text_html + "\n\n<i>Спасибо за вашу оценку!</i>",
-                        parse_mode='HTML',
-                        reply_markup=None
-                    )
-                    log_rating_error = (
-                        f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
-                        f"ID взаимодействия: {interaction_to_rate_id}"
-                    )
-                else:
-                    await query.answer("Не удалось сохранить оценку.", show_alert=True)
-
-                    # Логируем ошибку оценки
-                    log_rating_error = (
-                        f"❌ <b>Ошибка сохранения оценки</b>\n"
-                        f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
-                        f"ID взаимодействия: {interaction_to_rate_id}"
-                    )
-                    await send_to_log_channel(context, log_rating_error, parse_mode="HTML")
             else:
-                logger.warning(f"Неверный тип оценки: {rate_type}")
+                await query.answer("Не удалось сохранить оценку.", show_alert=True)
 
-    except (IndexError, ValueError) as e:
-        logger.error(f"Ошибка парсинга callback_data '{callback_data}': {e}")
-    except Exception as e:
-        logger.error(
-            f"Непредвиденная ошибка в button_callback: {e}", exc_info=True)
+                # Логируем ошибку оценки
+                log_rating_error = (
+                    f"❌ <b>Ошибка сохранения оценки</b>\n"
+                    f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+                    f"ID взаимодействия: {interaction_to_rate_id}"
+                )
+                await send_to_log_channel(context, log_rating_error, parse_mode="HTML")
+        else:
+            logger.warning(f"Неверный тип оценки: {rate_type}")
 
 
 # async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
