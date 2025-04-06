@@ -25,7 +25,7 @@ GENERATION_MODEL_NAME = os.environ.get(
     'GENERATION_MODEL', 'mistralai/Mistral-7B-Instruct-v0.3')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
-    'MAX_NEW_TOKENS_RAG', 400))
+    'MAX_NEW_TOKENS_RAG', 250))
 MAX_NEW_TOKENS_LIVE = int(os.environ.get(
     'MAX_NEW_TOKENS_LIVE', 200))
 
@@ -334,7 +334,7 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
             '_', ' ') + f'Страница №{ctx["page"]}')
 
     source_str = ", ".join(sources) if sources else "База Знаний"
-    prompt = f"""user
+    prompt = f"""<start_of_turn>user
         Ты - ИИ-ассистент Портала Поставщиков Москвы. Твоя задача - помочь пользователю, ответив на его вопрос.
 
         ИНСТРУКЦИИ:
@@ -350,6 +350,8 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
 
         ВОПРОС ПОЛЬЗОВАТЕЛЯ:
         {user_query}
+        <end_of_turn>
+        <start_of_turn>model
         """
     logger.debug(f"Промпт для LLM (Mistral RAG):\n{prompt}")
     try:
@@ -359,6 +361,8 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
         results = _generation_pipeline(prompt, **generation_args)
         generated_text_full = results[0]['generated_text']
         answer_only = generated_text_full[len(prompt):].strip()
+        for tag in ['<start_of_turn>', '<end_of_turn>']:
+            answer_only = answer_only.replace(tag, '')
         logger.info(f"Сгенерирован RAG ответ LLM (Gemma): {answer_only}")
         return answer_only
     except Exception as e:
@@ -388,11 +392,13 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
     else:
         instruction = "Пользователь задал вопрос или оставил сообщение, не относящееся к стандартным категориям. Ответь вежливо, но сообщи, что ты можешь помочь только с вопросами по Порталу Поставщиков или Базе Знаний. Если вопрос важный, предложи обратиться к оператору."
 
-    prompt = f"""user
+    prompt = f"""<start_of_turn>user
         {system_prompt} {instruction}
 
         СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
         {user_query}
+        <end_of_turn>
+        <start_of_turn>model
         """
 
     logger.debug(f"Промпт для LLM (Live Response):\n{prompt}")
@@ -409,6 +415,8 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
         results = _generation_pipeline(prompt, **generation_args)
         generated_text_full = results[0]['generated_text']
         answer_only = generated_text_full[len(prompt):].strip()
+        for tag in ['<start_of_turn>', '<end_of_turn>']:
+            answer_only = answer_only.replace(tag, '')
 
         logger.info(f"Сгенерирован 'живой' ответ LLM: {answer_only}")
         return answer_only
