@@ -141,15 +141,15 @@ def initialize_ai_core():
         unified_kb_data = []
         texts_to_embed = []
 
-        for item in raw_excel_data:
-            unified_kb_data.append({
-                "id": item["id"],
-                "text_to_index": item["question"],
-                "source": item["source"],
-                "data_type": "csv",
-                "content": item["answer"],
-            })
-            texts_to_embed.append(item["question"])
+        # for item in raw_excel_data:
+        #     unified_kb_data.append({
+        #         "id": item["id"],
+        #         "text_to_index": item["question"],
+        #         "source": item["source"],
+        #         "data_type": "csv",
+        #         "content": item["answer"],
+        #     })
+        #     texts_to_embed.append(item["question"])
 
         for item in chunked_kb_data:
             unified_kb_data.append({
