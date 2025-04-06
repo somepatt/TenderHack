@@ -183,7 +183,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup = InlineKeyboardMarkup(keyboard)
     elif query_category == "Жалобы" or not best_match_item and query_category:
         keyboard = [[InlineKeyboardButton(
-            "❓ Задать вопрос оператору", url="...")]]
+            "❓ Задать вопрос оператору", url="https://t.me/support_operator")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
