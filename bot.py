@@ -187,7 +187,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
-        await update.message.reply_html(final_response_text, reply_markup=reply_markup)
+        await update.message.reply_html(html.escape(parserfinal_response_text), reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Ошибка отправки: {e}")
 # --- Обработчик Нажатий на Кнопки (Callback) ---
