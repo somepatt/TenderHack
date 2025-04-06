@@ -18,8 +18,6 @@ USE_LLM_GENERATION = os.environ.get(
     'USE_LLM_GENERATION', 'True').lower() == 'true'
 USE_LLM_CLASSIFICATION = os.environ.get(
     'USE_LLM_CLASSIFICATION', 'True').lower() == 'true'
-PARAPHRASE_CSV_ANSWERS = os.environ.get(
-    'PARAPHRASE_CSV_ANSWERS', 'True').lower() == 'true'
 # LOG_CHANNEL_ID = os.environ.get("LOG_CHANNEL_ID")
 
 # --- Настройка Логирования (делаем это здесь, чтобы было доступно везде) ---
@@ -351,12 +349,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     retrieval_ok, generation_ok = ai_pipeline.get_ai_status()
 
     # --- 1. Классификация ---
-    query_category = "Другое"
-    if USE_LLM_CLASSIFICATION and generation_ok:
-        await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
-        query_category = ai_pipeline.classify_query_type_with_llm(user_query)
-    elif not generation_ok:
-        query_category = "Общие вопросы"
+    # query_category = "Другое"
+    # if USE_LLM_CLASSIFICATION and generation_ok:
+    #     await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
+    #     query_category = ai_pipeline.classify_query_type_with_llm(user_query)
+    # elif not generation_ok:
+    #     query_category = "Общие вопросы"
 
     # --- 2. Логирование запроса ---
     # request_interaction_id = database.log_interaction(
@@ -378,37 +376,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         best_match_item = ai_pipeline.retrieve_context(user_query)
 
         if best_match_item:
-            kb_id_for_log = best_match_item.get('id')
-            similarity_for_log = best_match_item.get('similarity')
-            data_type = best_match_item.get('data_type')
-            source = best_match_item.get('source', 'База Знаний')
-            original_content = best_match_item.get('content', '')
+            top = best_match_item[0]
+            kb_id_for_log = top.get('id')
+            similarity_for_log = top.get('similarity')
+            data_type = top.get('data_type')
+            source = top.get('source', 'База Знаний')
+            original_content = top.get('content', '')
 
             if data_type == 'csv':
                 logger.info(
                     f"Найден готовый ответ в CSV (ID: {kb_id_for_log}).")
-                paraphrased_answer = None
-                if PARAPHRASE_CSV_ANSWERS and generation_ok:
-                    logger.info("Пытаемся перефразировать ответ из CSV...")
-                    paraphrased_answer = ai_pipeline.paraphrase_text_with_llm(
-                        original_content)
 
-                if paraphrased_answer:
-                    logger.info("Используем перефразированный ответ.")
-                    response_parts = [
-                        f"Нашел ответ в базе Q&A (схожесть вопроса: {similarity_for_log:.2f}):",
-                        f"<blockquote>{html.escape(paraphrased_answer)}</blockquote>",
-                        f"<b>Источник:</b> {source}"
-                    ]
-                    final_response_text = "\n".join(response_parts)
-                else:
-                    logger.info(
-                        "Используем оригинальный ответ из CSV (перефразирование не удалось или отключено).")
-                    response_parts = [
-                        f"<blockquote>{html.escape(original_content)}</blockquote>",
-                        f"<b>Источник:</b> {source}"
-                    ]
-                    final_response_text = "\n".join(response_parts)
+                response_parts = [
+                    f"{html.escape(original_content)}",
+                    f"<b>Источник:</b> {source}"
+                ]
+                final_response_text = "\n".join(response_parts)
 
             elif data_type == 'pdf':
                 logger.info(
@@ -425,8 +408,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 else:
                     logger.warning(
                         "Не удалось сгенерировать ответ LLM по PDF, показываем текст чанка.")
-                    response_parts = [f"Нашел релевантный фрагмент в документе '{source}' (схожесть: {similarity_for_log:.2f}):",
-                                      f"<blockquote>{html.escape(original_content)}</blockquote>",
+                    response_parts = [f"{html.escape(original_content)}",
                                       f"<b>Источник:</b> {source}"]
                     final_response_text = "\n".join(response_parts)
             else:
