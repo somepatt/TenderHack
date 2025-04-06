@@ -5,7 +5,7 @@ import torch
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from transformers import AutoModelForCausalLM, AutoProcessor, pipeline
 from typing import List, Dict, Any, Optional, Tuple
 
 import pdf_processor
@@ -187,12 +187,12 @@ def initialize_ai_core():
         logger.info(
             f"Инициализация Generation части ({GENERATION_MODEL_NAME})...")
         try:
-            _tokenizer_llm = AutoTokenizer.from_pretrained(
+            _tokenizer_llm = AutoProcessor.from_pretrained(
                 GENERATION_MODEL_NAME)
             model_llm = AutoModelForCausalLM.from_pretrained(
                 GENERATION_MODEL_NAME, device_map=llm_device, torch_dtype=llm_dtype, trust_remote_code=True)
             _generation_pipeline = pipeline(
-                "image-text-to-text", model=model_llm, tokenizer=_tokenizer_llm)
+                "text-generation", model=model_llm, tokenizer=_tokenizer_llm)
             logger.info("Generation pipeline создан.")
             _is_initialized_generation = True
         except Exception as e:
