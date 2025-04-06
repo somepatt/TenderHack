@@ -389,8 +389,8 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
         return None
     context_str = ""
     sources = set()
-    sources.add(ctx[0]['source'].replace(
-        '_', ' ') + f' Страница №{ctx[0]["page"]}')
+    sources.add(context_list[0]['source'].replace(
+        '_', ' ') + f' Страница №{context_list[0]["page"]}')
     for i, ctx in enumerate(context_list):
         context_str += f"{ctx['content']}\n"
 
