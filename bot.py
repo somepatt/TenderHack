@@ -7,7 +7,7 @@ from telegram.ext import (
 import html
 from dotenv import load_dotenv
 
-
+import database
 import ai_pipeline
 
 load_dotenv()
