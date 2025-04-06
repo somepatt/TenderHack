@@ -22,14 +22,14 @@ CPU_DTYPE = torch.float32
 
 
 GENERATION_MODEL_NAME = os.environ.get(
-    'GENERATION_MODEL', 'mistralai/Mistral-7B-Instruct-v0.3')
+    'GENERATION_MODEL', 'google/gemma-3-4b-it')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
-    'MAX_NEW_TOKENS_RAG', 200))
+    'MAX_NEW_TOKENS_RAG', 400))
 MAX_NEW_TOKENS_LIVE = int(os.environ.get(
-    'MAX_NEW_TOKENS_LIVE', 100))
-MAX_NEW_TOKENS_PARAPHRASE = int(os.environ.get(
-    'MAX_NEW_TOKENS_LIVE', 250))
+    'MAX_NEW_TOKENS_LIVE', 200))
+# MAX_NEW_TOKENS_PARAPHRASE = int(os.environ.get(
+#     'MAX_NEW_TOKENS_LIVE', 250))
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +346,7 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
             в КОНТЕКСТЕ. В конце ответа укажи ИСТОЧНИК.
             Не нужно из каждого источника указывать ответ. 
             Суммируй все данные из источника и выдай ответ.
+            !!!Обязательно в конце укажи источник вместе с страницей!!!
 
             КОНТЕКСТ:
             {context_str}
