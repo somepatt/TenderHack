@@ -361,8 +361,6 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
         results = _generation_pipeline(prompt, **generation_args)
         generated_text_full = results[0]['generated_text']
         answer_only = generated_text_full[len(prompt):].strip()
-        if answer_only.endswith("Твой ответ: "):
-            answer_only = answer_only[:-len("Твой ответ: ")].strip()
         logger.info(f"Сгенерирован RAG ответ LLM (Gemma): {answer_only}")
         return answer_only
     except Exception as e:
