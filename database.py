@@ -78,7 +78,6 @@ def init_db():
             """)
             logger.debug("Таблица 'request_themes' проверена/создана.")
 
-            # Индексы для ускорения запросов
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_interactions_user_time ON interactions (user_telegram_id, timestamp);")
             cursor.execute(
@@ -116,8 +115,8 @@ def log_interaction(
     effective_category = query_category if is_from_user else None
     sql = """
         INSERT INTO interactions
-        (user_telegram_id, is_from_user, message_text, request_interaction_id, matched_kb_id, similarity_score, assigned_theme_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (user_telegram_id, is_from_user, message_text, query_category, request_interaction_id, matched_kb_id, similarity_score, assigned_theme_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
     params = (
         user_telegram_id,
