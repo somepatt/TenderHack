@@ -25,7 +25,7 @@ GENERATION_MODEL_NAME = os.environ.get(
     'GENERATION_MODEL', 'mistralai/Mistral-7B-Instruct-v0.3')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
-    'MAX_NEW_TOKENS_RAG', 350))
+    'MAX_NEW_TOKENS_RAG', 300))
 MAX_NEW_TOKENS_LIVE = int(os.environ.get(
     'MAX_NEW_TOKENS_LIVE', 200))
 MAX_NEW_TOKENS_SPELLCHECK = int(
@@ -417,6 +417,8 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
 
         ВОПРОС ПОЛЬЗОВАТЕЛЯ:
         {user_query}
+
+        В конце ответа **обязательно укажи ИСТОЧНИК(И)** информации. Используй названия документов, указанные в начале каждого фрагмента КОНТЕКСТА. Если можешь определить номер страницы, укажи и его. Пример формата: "(Источник: 'Название документа', стр. 5). Пиши источники каждый на новой строчке".
         <end_of_turn>
         <start_of_turn>model
         """
