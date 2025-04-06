@@ -181,7 +181,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         keyboard = [[InlineKeyboardButton("👍", callback_data=f"rate_up_{request_interaction_id}"),
                      InlineKeyboardButton("👎", callback_data=f"rate_down_{request_interaction_id}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-    elif query_category == "Жалобы" or not best_match_item and query_category in ai_pipeline.SEARCH_KB_CATEGORIES:
+    elif query_category == "Жалобы" or not best_match_item and query_category:
         keyboard = [[InlineKeyboardButton(
             "❓ Задать вопрос оператору", url="...")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
