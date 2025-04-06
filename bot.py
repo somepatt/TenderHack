@@ -238,6 +238,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         parse_mode='HTML',
                         reply_markup=None
                     )
+                    log_rating_error = (
+                        f"Пользователь: {html.escape(user.full_name)} (ID: {user.id})\n"
+                        f"ID взаимодействия: {interaction_to_rate_id}"
+                    )
                 else:
                     await query.answer("Не удалось сохранить оценку.", show_alert=True)
 
