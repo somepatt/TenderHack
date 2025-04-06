@@ -192,7 +192,7 @@ def initialize_ai_core():
             model_llm = AutoModelForCausalLM.from_pretrained(
                 GENERATION_MODEL_NAME, device_map=llm_device, torch_dtype=llm_dtype, trust_remote_code=True)
             _generation_pipeline = pipeline(
-                "text-generation", model=model_llm, tokenizer=_tokenizer_llm)
+                "image-text-to-text", model=model_llm, tokenizer=_tokenizer_llm)
             logger.info("Generation pipeline создан.")
             _is_initialized_generation = True
         except Exception as e:
