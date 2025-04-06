@@ -333,7 +333,7 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
     sources = set()
     for i, ctx in enumerate(context_list):
         context_str += f"{ctx['content']}\n"
-        sources.add(ctx['source'])
+        sources.add(ctx['source'].replace('_', ' '))
 
     source_str = ", ".join(sources) if sources else "База Знаний"
     prompt = f"""
@@ -341,11 +341,13 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
             Ответь на ВОПРОС ПОЛЬЗОВАТЕЛЯ кратко и четко, 
             основываясь ИСКЛЮЧИТЕЛЬНО на предоставленном 
             КОНТЕКСТЕ. Не добавляй никакой информации, которой нет
-            в КОНТЕКСТЕ. В конце ответа укажи ИСТОЧНИК(И).
+            в КОНТЕКСТЕ. В конце ответа укажи ИСТОЧНИК.
+            Не нужно из каждого источника указывать ответ. 
+            Суммируй все данные из источника и выдай ответ.
 
             КОНТЕКСТ:
             {context_str}
-            ИСТОЧНИК(И): {source_str}
+            Источник: {source_str}
 
             ВОПРОС ПОЛЬЗОВАТЕЛЯ:
             {user_query}
