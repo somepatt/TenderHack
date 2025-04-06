@@ -25,7 +25,7 @@ GENERATION_MODEL_NAME = os.environ.get(
     'GENERATION_MODEL', 'mistralai/Mistral-7B-Instruct-v0.3')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
-    'MAX_NEW_TOKENS_RAG', 500))
+    'MAX_NEW_TOKENS_RAG', 350))
 MAX_NEW_TOKENS_LIVE = int(os.environ.get(
     'MAX_NEW_TOKENS_LIVE', 200))
 MAX_NEW_TOKENS_SPELLCHECK = int(
