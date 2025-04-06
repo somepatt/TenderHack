@@ -22,7 +22,7 @@ CPU_DTYPE = torch.float32
 
 
 GENERATION_MODEL_NAME = os.environ.get(
-    'GENERATION_MODEL', 'google/gemma-3-1b-it')
+    'GENERATION_MODEL', 'Qwen/Qwen2.5-VL-7B-Instruct')
 USE_QUANTIZATION = False
 MAX_NEW_TOKENS_RAG = int(os.environ.get(
     'MAX_NEW_TOKENS_RAG', 200))
