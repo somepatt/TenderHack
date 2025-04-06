@@ -225,6 +225,7 @@ def correct_spelling_with_llm(text_to_correct: str) -> Optional[str]:
 
     ТЕКСТ С ОШИБКАМИ:
     {text_to_correct}
+    МЧД MCD - ЭТО Машиночитаемая доверенность (МЧД) 
     <end_of_turn>
     <start_of_turn>model
     """
@@ -412,7 +413,7 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
         КОНТЕКСТ:
         {context_str}
         МЧД ЭТО Машиночитаемая доверенность (МЧД) 
-        
+
         ИСТОЧНИКИ:
         {sources}
 
