@@ -334,7 +334,7 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
             '_', ' ') + f'Страница №{ctx["page"]}')
 
     source_str = ", ".join(sources) if sources else "База Знаний"
-    prompt = f"""<start_of_turn>user
+    prompt = f"""user
         Ты - ИИ-ассистент Портала Поставщиков Москвы. Твоя задача - помочь пользователю, ответив на его вопрос.
 
         ИНСТРУКЦИИ:
@@ -350,8 +350,6 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
 
         ВОПРОС ПОЛЬЗОВАТЕЛЯ:
         {user_query}
-        <end_of_turn>
-        <start_of_turn>model
         """
     logger.debug(f"Промпт для LLM (Mistral RAG):\n{prompt}")
     try:
@@ -390,13 +388,11 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
     else:
         instruction = "Пользователь задал вопрос или оставил сообщение, не относящееся к стандартным категориям. Ответь вежливо, но сообщи, что ты можешь помочь только с вопросами по Порталу Поставщиков или Базе Знаний. Если вопрос важный, предложи обратиться к оператору."
 
-    prompt = f"""<start_of_turn>user
+    prompt = f"""user
         {system_prompt} {instruction}
 
         СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
         {user_query}
-        <end_of_turn>
-        <start_of_turn>model
         """
 
     logger.debug(f"Промпт для LLM (Live Response):\n{prompt}")
@@ -413,8 +409,6 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
         results = _generation_pipeline(prompt, **generation_args)
         generated_text_full = results[0]['generated_text']
         answer_only = generated_text_full[len(prompt):].strip()
-        if answer_only.endswith("<end_of_turn>"):
-            answer_only = answer_only[:-len("<end_of_turn>")].strip()
 
         logger.info(f"Сгенерирован 'живой' ответ LLM: {answer_only}")
         return answer_only
