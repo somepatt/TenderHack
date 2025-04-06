@@ -464,7 +464,7 @@ def generate_live_response_with_llm(user_query: str, query_category: str) -> Opt
         СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
         {user_query}
 
-        ДАЙ КОРОТКИЙ И ПОНЯТНЫЙ ОТВЕТ. У ТЕБЯ ВСЕГО 250 ТОКЕНОВ
+        ДАЙ КОРОТКИЙ И ПОНЯТНЫЙ ОТВЕТ. У ТЕБЯ ВСЕГО 250 ТОКЕНОВ. НЕ НУЖНО ПИСАТЬ ОТ ЛИЦА ПОЛЬЗОВАТЕЛЯ
 
         <end_of_turn>
         <start_of_turn>model
