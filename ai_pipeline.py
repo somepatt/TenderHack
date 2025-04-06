@@ -296,25 +296,33 @@ def retrieve_context(query_text: str) -> Optional[Dict[str, Any]]:
 
         similarities = cosine_similarity(query_embedding, _kb_embeddings)[0]
 
-        best_match_idx = np.argmax(similarities)
-        best_similarity = similarities[best_match_idx]
+        sorted_indices = np.argsort(similarities)[::-1]
 
-        if best_similarity >= SIMILARITY_THRESHOLD:
-            best_match_item = _kb_data_indexed[best_match_idx].copy()
-            best_match_item["similarity"] = float(best_similarity)
+        top_results = []
+        for i in range(min(TOP_K, len(sorted_indices))):
+            idx = sorted_indices[i]
+            similarity = similarities[idx]
 
+            if similarity >= SIMILARITY_THRESHOLD:
+                match_item = _kb_data_indexed[idx].copy()
+                match_item["similarity"] = float(similarity)
+                top_results.append(match_item)
+            else:
+                break
+
+        if top_results:
             logger.info(
-                f"Найдено лучшее совпадение: ID={best_match_item['id']}, Тип={best_match_item['data_type']}, Схожесть={best_similarity:.4f}")
-            return best_match_item
+                f"Найдено {len(top_results)} релевантных совпадений (TOP_{TOP_K}) с порогом >={SIMILARITY_THRESHOLD:.2f}.")
+            return top_results
         else:
             logger.info(
-                f"Лучшее совпадение имеет схожесть {best_similarity:.4f}, что ниже порога {SIMILARITY_THRESHOLD}. Контекст не найден.")
-            return None
+                f"Релевантных совпадений с порогом >={SIMILARITY_THRESHOLD:.2f} не найдено.")
+            return []
 
     except Exception as e:
         logger.error(
-            f"Ошибка во время поиска контекста (XLS/PDF): {e}", exc_info=True)
-        return None
+            f"Ошибка во время поиска TOP_K контекста (CSV/PDF): {e}", exc_info=True)
+        return []
 
 
 def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optional[str]:
