@@ -205,63 +205,63 @@ def initialize_ai_core():
     return _is_initialized_retrieval
 
 
-def correct_spelling_with_llm(text_to_correct: str) -> Optional[str]:
-    """
-    Пытается исправить грамматические и орфографические ошибки в тексте с помощью LLM.
-    Возвращает исправленный текст или None, если LLM недоступна или произошла ошибка.
-    """
-    global _generation_pipeline, _tokenizer_llm
+# def correct_spelling_with_llm(text_to_correct: str) -> Optional[str]:
+#     """
+#     Пытается исправить грамматические и орфографические ошибки в тексте с помощью LLM.
+#     Возвращает исправленный текст или None, если LLM недоступна или произошла ошибка.
+#     """
+#     global _generation_pipeline, _tokenizer_llm
 
-    if _generation_pipeline is None:
-        logger.warning(
-            "Generation pipeline недоступен, исправление опечаток LLM невозможно.")
-        return None  # Не можем исправить
-    if not text_to_correct:
-        return text_to_correct  # Возвращаем пустую строку как есть
+#     if _generation_pipeline is None:
+#         logger.warning(
+#             "Generation pipeline недоступен, исправление опечаток LLM невозможно.")
+#         return None  # Не можем исправить
+#     if not text_to_correct:
+#         return text_to_correct  # Возвращаем пустую строку как есть
 
-    prompt = f"""<start_of_turn>user
-    ТВОЯ РОЛЬ: Редактор-корректор текста.
-    ТВОЯ ЗАДАЧА: Внимательно прочитай "ТЕКСТ С ОШИБКАМИ". Перепиши этот текст, исправив в нем **все** грамматические и орфографические ошибки. Полностью сохрани исходный смысл и стиль изложения. Твой ответ должен содержать **только исправленную версию текста** и ничего больше (без предисловий, без объяснений, без комментариев).
+#     prompt = f"""<start_of_turn>user
+#     ТВОЯ РОЛЬ: Редактор-корректор текста.
+#     ТВОЯ ЗАДАЧА: Внимательно прочитай "ТЕКСТ С ОШИБКАМИ". Перепиши этот текст, исправив в нем **все** грамматические и орфографические ошибки. Полностью сохрани исходный смысл и стиль изложения. Твой ответ должен содержать **только исправленную версию текста** и ничего больше (без предисловий, без объяснений, без комментариев).
 
-    ТЕКСТ С ОШИБКАМИ:
-    {text_to_correct}
-    <end_of_turn>
-    <start_of_turn>model
-    """
+#     ТЕКСТ С ОШИБКАМИ:
+#     {text_to_correct}
+#     <end_of_turn>
+#     <start_of_turn>model
+#     """
 
-    logger.debug(f"Промпт для LLM (Spellcheck):\n{prompt}")
-    try:
-        logger.info(
-            f"Исправление опечаток LLM для: '{text_to_correct[:60]}...'")
-        generation_args = {
-            "max_new_tokens": MAX_NEW_TOKENS_SPELLCHECK,
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "do_sample": True,
-            "eos_token_id": _tokenizer_llm.eos_token_id,
-        }
+#     logger.debug(f"Промпт для LLM (Spellcheck):\n{prompt}")
+#     try:
+#         logger.info(
+#             f"Исправление опечаток LLM для: '{text_to_correct[:60]}...'")
+#         generation_args = {
+#             "max_new_tokens": MAX_NEW_TOKENS_SPELLCHECK,
+#             "temperature": 0.1,
+#             "top_p": 0.9,
+#             "do_sample": True,
+#             "eos_token_id": _tokenizer_llm.eos_token_id,
+#         }
 
-        results = _generation_pipeline(prompt, **generation_args)
-        generated_text_full = results[0]['generated_text']
-        corrected_text = generated_text_full[len(prompt):].strip()
-        for tag in ['<start_of_turn>', '<end_of_turn>']:
-            corrected_text = corrected_text.replace(tag, '')
+#         results = _generation_pipeline(prompt, **generation_args)
+#         generated_text_full = results[0]['generated_text']
+#         corrected_text = generated_text_full[len(prompt):].strip()
+#         for tag in ['<start_of_turn>', '<end_of_turn>']:
+#             corrected_text = corrected_text.replace(tag, '')
 
-        if not corrected_text:
-            logger.warning(
-                "Исправление опечаток LLM вернуло пустой результат. Используем оригинал.")
-            return text_to_correct
+#         if not corrected_text:
+#             logger.warning(
+#                 "Исправление опечаток LLM вернуло пустой результат. Используем оригинал.")
+#             return text_to_correct
 
-        logger.info(f"Текст после исправления LLM: '{corrected_text}'")
-        if corrected_text.lower() == text_to_correct.lower():
-            logger.debug("LLM не внесла изменений при исправлении опечаток.")
-            return text_to_correct
-        else:
-            return corrected_text
+#         logger.info(f"Текст после исправления LLM: '{corrected_text}'")
+#         if corrected_text.lower() == text_to_correct.lower():
+#             logger.debug("LLM не внесла изменений при исправлении опечаток.")
+#             return text_to_correct
+#         else:
+#             return corrected_text
 
-    except Exception as e:
-        logger.error(f"Ошибка исправления опечаток LLM: {e}", exc_info=True)
-        return text_to_correct
+#     except Exception as e:
+#         logger.error(f"Ошибка исправления опечаток LLM: {e}", exc_info=True)
+#         return text_to_correct
 
 
 def classify_query_type_with_llm(user_query: str) -> Optional[str]:
@@ -348,7 +348,7 @@ def retrieve_context(query_text: str) -> Optional[Dict[str, Any]]:
     logger.debug(
         f"Поиск лучшего совпадения (XLS/PDF) по запросу: {query_text}")
     try:
-        query_text = correct_spelling_with_llm(query_text)
+        # query_text = correct_spelling_with_llm(query_text)
         query_embedding_tensor = _retrieval_model.encode(
             [query_text], convert_to_tensor=True, normalize_embeddings=True, device=DEVICE)
         query_embedding = query_embedding_tensor.cpu().numpy()
