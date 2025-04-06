@@ -159,6 +159,7 @@ def initialize_ai_core():
                 "source": item["source"],
                 "data_type": "pdf",
                 "content": item["text"],
+                "page": item["page"]
             })
             texts_to_embed.append(item["text"])
 
@@ -333,7 +334,8 @@ def generate_answer_with_llm(user_query: str, context_list: list[dict]) -> Optio
     sources = set()
     for i, ctx in enumerate(context_list):
         context_str += f"{ctx['content']}\n"
-        sources.add(ctx['source'].replace('_', ' '))
+        sources.add(ctx['source'].replace(
+            '_', ' ') + f'Страница №{ctx["page"]}')
 
     source_str = ", ".join(sources) if sources else "База Знаний"
     prompt = f"""
